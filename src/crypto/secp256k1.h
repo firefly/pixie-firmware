@@ -67,7 +67,7 @@ int32_t secp256k1_computePublicKey(uint8_t *privateKey, uint8_t *publicKey);
 void secp256k1_compressPublicKey(uint8_t *publicKey, uint8_t *compressedPublicKey);
 void secp256k1_decompressPublicKey(uint8_t *compressedPublicKey, uint8_t *publicKey);
 
-int32_t secp256k1_computeSharedSecret(uint8_t *privateKey, uint8_t *otherPublicKey);
+int32_t secp256k1_computeSharedSecret(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret);
 
 //int32_t secp256k1_addPoints(uint8_t *p0, uint8_t *p1);
 

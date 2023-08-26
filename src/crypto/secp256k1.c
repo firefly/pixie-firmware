@@ -43,11 +43,9 @@
 
 #include <stdint.h>
 
-// #include "uECC.h"
+#include "secp256k1.h"
 
-#ifndef uECC_SQUARE_FUNC
-#define uECC_SQUARE_FUNC 0
-#endif
+// #include "uECC.h"
 
 struct uECC_Curve_t;
 typedef const struct uECC_Curve_t *uECC_Curve;
@@ -89,159 +87,6 @@ typedef uint64_t uECC_dword_t;
 #define uECC_WORD_BITS_MASK 0x01F
 
 
-/* Functions for raw large-integer manipulation. These are only available
-   if uECC.c is compiled with uECC_ENABLE_VLI_API defined to 1. */
-#ifndef uECC_ENABLE_VLI_API
-    #define uECC_ENABLE_VLI_API 0
-#endif
-
-#if uECC_ENABLE_VLI_API
-
-void uECC_vli_clear(uECC_word_t *vli, wordcount_t num_words);
-
-/* Constant-time comparison to zero - secure way to compare long integers */
-/* Returns 1 if vli == 0, 0 otherwise. */
-uECC_word_t uECC_vli_isZero(const uECC_word_t *vli, wordcount_t num_words);
-
-/* Returns nonzero if bit 'bit' of vli is set. */
-uECC_word_t uECC_vli_testBit(const uECC_word_t *vli, bitcount_t bit);
-
-/* Counts the number of bits required to represent vli. */
-bitcount_t uECC_vli_numBits(const uECC_word_t *vli, const wordcount_t max_words);
-
-/* Sets dest = src. */
-void uECC_vli_set(uECC_word_t *dest, const uECC_word_t *src, wordcount_t num_words);
-
-/* Constant-time comparison function - secure way to compare long integers */
-/* Returns one if left == right, zero otherwise */
-uECC_word_t uECC_vli_equal(const uECC_word_t *left,
-                           const uECC_word_t *right,
-                           wordcount_t num_words);
-
-/* Constant-time comparison function - secure way to compare long integers */
-/* Returns sign of left - right, in constant time. */
-cmpresult_t uECC_vli_cmp(const uECC_word_t *left, const uECC_word_t *right, wordcount_t num_words);
-
-/* Computes vli = vli >> 1. */
-void uECC_vli_rshift1(uECC_word_t *vli, wordcount_t num_words);
-
-/* Computes result = left + right, returning carry. Can modify in place. */
-uECC_word_t uECC_vli_add(uECC_word_t *result,
-                         const uECC_word_t *left,
-                         const uECC_word_t *right,
-                         wordcount_t num_words);
-
-/* Computes result = left - right, returning borrow. Can modify in place. */
-uECC_word_t uECC_vli_sub(uECC_word_t *result,
-                         const uECC_word_t *left,
-                         const uECC_word_t *right,
-                         wordcount_t num_words);
-
-/* Computes result = left * right. Result must be 2 * num_words long. */
-void uECC_vli_mult(uECC_word_t *result,
-                   const uECC_word_t *left,
-                   const uECC_word_t *right,
-                   wordcount_t num_words);
-
-/* Computes result = left^2. Result must be 2 * num_words long. */
-void uECC_vli_square(uECC_word_t *result, const uECC_word_t *left, wordcount_t num_words);
-
-/* Computes result = (left + right) % mod.
-   Assumes that left < mod and right < mod, and that result does not overlap mod. */
-void uECC_vli_modAdd(uECC_word_t *result,
-                     const uECC_word_t *left,
-                     const uECC_word_t *right,
-                     const uECC_word_t *mod,
-                     wordcount_t num_words);
-
-/* Computes result = (left - right) % mod.
-   Assumes that left < mod and right < mod, and that result does not overlap mod. */
-void uECC_vli_modSub(uECC_word_t *result,
-                     const uECC_word_t *left,
-                     const uECC_word_t *right,
-                     const uECC_word_t *mod,
-                     wordcount_t num_words);
-
-/* Computes result = product % mod, where product is 2N words long.
-   Currently only designed to work for mod == curve->p or curve_n. */
-void uECC_vli_mmod(uECC_word_t *result,
-                   uECC_word_t *product,
-                   const uECC_word_t *mod,
-                   wordcount_t num_words);
-
-/* Calculates result = product (mod curve->p), where product is up to
-   2 * curve->num_words long. */
-void uECC_vli_mmod_fast(uECC_word_t *result, uECC_word_t *product, uECC_Curve curve);
-
-/* Computes result = (left * right) % mod.
-   Currently only designed to work for mod == curve->p or curve_n. */
-void uECC_vli_modMult(uECC_word_t *result,
-                      const uECC_word_t *left,
-                      const uECC_word_t *right,
-                      const uECC_word_t *mod,
-                      wordcount_t num_words);
-
-/* Computes result = (left * right) % curve->p. */
-void uECC_vli_modMult_fast(uECC_word_t *result,
-                           const uECC_word_t *left,
-                           const uECC_word_t *right,
-                           uECC_Curve curve);
-
-/* Computes result = left^2 % mod.
-   Currently only designed to work for mod == curve->p or curve_n. */
-void uECC_vli_modSquare(uECC_word_t *result,
-                        const uECC_word_t *left,
-                        const uECC_word_t *mod,
-                        wordcount_t num_words);
-
-/* Computes result = left^2 % curve->p. */
-void uECC_vli_modSquare_fast(uECC_word_t *result, const uECC_word_t *left, uECC_Curve curve);
-
-/* Computes result = (1 / input) % mod.*/
-void uECC_vli_modInv(uECC_word_t *result,
-                     const uECC_word_t *input,
-                     const uECC_word_t *mod,
-                     wordcount_t num_words);
-
-/* Calculates a = sqrt(a) (mod curve->p) */
-void uECC_vli_mod_sqrt(uECC_word_t *a, uECC_Curve curve);
-
-/* Converts an integer in uECC native format to big-endian bytes. */
-void uECC_vli_nativeToBytes(uint8_t *bytes, int num_bytes, const uECC_word_t *native);
-/* Converts big-endian bytes to an integer in uECC native format. */
-void uECC_vli_bytesToNative(uECC_word_t *native, const uint8_t *bytes, int num_bytes);
-
-unsigned uECC_curve_num_words(uECC_Curve curve);
-unsigned uECC_curve_num_bytes(uECC_Curve curve);
-unsigned uECC_curve_num_bits(uECC_Curve curve);
-unsigned uECC_curve_num_n_words(uECC_Curve curve);
-unsigned uECC_curve_num_n_bytes(uECC_Curve curve);
-unsigned uECC_curve_num_n_bits(uECC_Curve curve);
-
-const uECC_word_t *uECC_curve_p(uECC_Curve curve);
-const uECC_word_t *uECC_curve_n(uECC_Curve curve);
-const uECC_word_t *uECC_curve_G(uECC_Curve curve);
-const uECC_word_t *uECC_curve_b(uECC_Curve curve);
-
-int uECC_valid_point(const uECC_word_t *point, uECC_Curve curve);
-
-/* Multiplies a point by a scalar. Points are represented by the X coordinate followed by
-   the Y coordinate in the same array, both coordinates are curve->num_words long. Note
-   that scalar must be curve->num_n_words long (NOT curve->num_words). */
-void uECC_point_mult(uECC_word_t *result,
-                     const uECC_word_t *point,
-                     const uECC_word_t *scalar,
-                     uECC_Curve curve);
-
-/* Generates a random integer in the range 0 < random < top.
-   Both random and top have num_words words. */
-int uECC_generate_random_int(uECC_word_t *random,
-                             const uECC_word_t *top,
-                             wordcount_t num_words);
-
-#endif /* uECC_ENABLE_VLI_API */
-
-
 // <RicMoo>
 // See: #51
 #define uECC_n_size_4 32 /* secp256k1 */
@@ -251,12 +96,6 @@ int uECC_generate_random_int(uECC_word_t *random,
 
 #ifndef uECC_RNG_MAX_TRIES
 #define uECC_RNG_MAX_TRIES 64
-#endif
-
-#if uECC_ENABLE_VLI_API
-#define uECC_VLI_API
-#else
-#define uECC_VLI_API static
 #endif
 
 #define CONCATX(a, ...) a##__VA_ARGS__
@@ -446,7 +285,7 @@ int uECC_curve_public_key_size(uECC_Curve curve) {
 }
 */
 #if !asm_clear
-uECC_VLI_API void uECC_vli_clear(uECC_word_t *vli, wordcount_t num_words) {
+static void uECC_vli_clear(uECC_word_t *vli, wordcount_t num_words) {
     wordcount_t i;
     for (i = 0; i < num_words; ++i) {
         vli[i] = 0;
@@ -456,7 +295,7 @@ uECC_VLI_API void uECC_vli_clear(uECC_word_t *vli, wordcount_t num_words) {
 
 /* Constant-time comparison to zero - secure way to compare long integers */
 /* Returns 1 if vli == 0, 0 otherwise. */
-uECC_VLI_API uECC_word_t uECC_vli_isZero(const uECC_word_t *vli, wordcount_t num_words) {
+static uECC_word_t uECC_vli_isZero(const uECC_word_t *vli, wordcount_t num_words) {
     uECC_word_t bits = 0;
     wordcount_t i;
     for (i = 0; i < num_words; ++i) {
@@ -466,7 +305,7 @@ uECC_VLI_API uECC_word_t uECC_vli_isZero(const uECC_word_t *vli, wordcount_t num
 }
 
 /* Returns nonzero if bit 'bit' of vli is set. */
-uECC_VLI_API uECC_word_t uECC_vli_testBit(const uECC_word_t *vli, bitcount_t bit) {
+static uECC_word_t uECC_vli_testBit(const uECC_word_t *vli, bitcount_t bit) {
     return (vli[bit >> uECC_WORD_BITS_SHIFT] & ((uECC_word_t)1 << (bit & uECC_WORD_BITS_MASK)));
 }
 
@@ -482,7 +321,7 @@ static wordcount_t vli_numDigits(const uECC_word_t *vli, const wordcount_t max_w
 }
 
 /* Counts the number of bits required to represent vli. */
-uECC_VLI_API bitcount_t uECC_vli_numBits(const uECC_word_t *vli, const wordcount_t max_words) {
+static bitcount_t uECC_vli_numBits(const uECC_word_t *vli, const wordcount_t max_words) {
     uECC_word_t i;
     uECC_word_t digit;
 
@@ -501,7 +340,7 @@ uECC_VLI_API bitcount_t uECC_vli_numBits(const uECC_word_t *vli, const wordcount
 
 /* Sets dest = src. */
 #if !asm_set
-uECC_VLI_API void uECC_vli_set(uECC_word_t *dest, const uECC_word_t *src, wordcount_t num_words) {
+static void uECC_vli_set(uECC_word_t *dest, const uECC_word_t *src, wordcount_t num_words) {
     wordcount_t i;
     for (i = 0; i < num_words; ++i) {
         dest[i] = src[i];
@@ -526,7 +365,7 @@ static cmpresult_t uECC_vli_cmp_unsafe(const uECC_word_t *left,
 
 /* Constant-time comparison function - secure way to compare long integers */
 /* Returns one if left == right, zero otherwise. */
-uECC_VLI_API uECC_word_t uECC_vli_equal(const uECC_word_t *left,
+static uECC_word_t uECC_vli_equal(const uECC_word_t *left,
                                         const uECC_word_t *right,
                                         wordcount_t num_words) {
     uECC_word_t diff = 0;
@@ -537,13 +376,13 @@ uECC_VLI_API uECC_word_t uECC_vli_equal(const uECC_word_t *left,
     return (diff == 0);
 }
 
-uECC_VLI_API uECC_word_t uECC_vli_sub(uECC_word_t *result,
+static uECC_word_t uECC_vli_sub(uECC_word_t *result,
                                       const uECC_word_t *left,
                                       const uECC_word_t *right,
                                       wordcount_t num_words);
 
 /* Returns sign of left - right, in constant time. */
-uECC_VLI_API cmpresult_t uECC_vli_cmp(const uECC_word_t *left,
+static cmpresult_t uECC_vli_cmp(const uECC_word_t *left,
                                       const uECC_word_t *right,
                                       wordcount_t num_words) {
     uECC_word_t tmp[uECC_MAX_WORDS];
@@ -554,7 +393,7 @@ uECC_VLI_API cmpresult_t uECC_vli_cmp(const uECC_word_t *left,
 
 /* Computes vli = vli >> 1. */
 #if !asm_rshift1
-uECC_VLI_API void uECC_vli_rshift1(uECC_word_t *vli, wordcount_t num_words) {
+static void uECC_vli_rshift1(uECC_word_t *vli, wordcount_t num_words) {
     uECC_word_t *end = vli;
     uECC_word_t carry = 0;
 
@@ -569,7 +408,7 @@ uECC_VLI_API void uECC_vli_rshift1(uECC_word_t *vli, wordcount_t num_words) {
 
 /* Computes result = left + right, returning carry. Can modify in place. */
 #if !asm_add
-uECC_VLI_API uECC_word_t uECC_vli_add(uECC_word_t *result,
+static uECC_word_t uECC_vli_add(uECC_word_t *result,
                                       const uECC_word_t *left,
                                       const uECC_word_t *right,
                                       wordcount_t num_words) {
@@ -588,7 +427,7 @@ uECC_VLI_API uECC_word_t uECC_vli_add(uECC_word_t *result,
 
 /* Computes result = left - right, returning borrow. Can modify in place. */
 #if !asm_sub
-uECC_VLI_API uECC_word_t uECC_vli_sub(uECC_word_t *result,
+static uECC_word_t uECC_vli_sub(uECC_word_t *result,
                                       const uECC_word_t *left,
                                       const uECC_word_t *right,
                                       wordcount_t num_words) {
@@ -605,8 +444,7 @@ uECC_VLI_API uECC_word_t uECC_vli_sub(uECC_word_t *result,
 }
 #endif /* !asm_sub */
 
-#if !asm_mult || (uECC_SQUARE_FUNC && !asm_square) ||            \
-    (((uECC_WORD_SIZE == 1) || (uECC_WORD_SIZE == 8)))
+#if !asm_mult || (((uECC_WORD_SIZE == 1) || (uECC_WORD_SIZE == 8)))
 static void muladd(uECC_word_t a,
                    uECC_word_t b,
                    uECC_word_t *r0,
@@ -622,7 +460,7 @@ static void muladd(uECC_word_t a,
 #endif /* muladd needed */
 
 #if !asm_mult
-uECC_VLI_API void uECC_vli_mult(uECC_word_t *result,
+static void uECC_vli_mult(uECC_word_t *result,
                                 const uECC_word_t *left,
                                 const uECC_word_t *right,
                                 wordcount_t num_words) {
@@ -654,67 +492,9 @@ uECC_VLI_API void uECC_vli_mult(uECC_word_t *result,
 }
 #endif /* !asm_mult */
 
-#if uECC_SQUARE_FUNC
-
-#if !asm_square
-static void mul2add(uECC_word_t a,
-                    uECC_word_t b,
-                    uECC_word_t *r0,
-                    uECC_word_t *r1,
-                    uECC_word_t *r2) {
-    uECC_dword_t p = (uECC_dword_t)a * b;
-    uECC_dword_t r01 = ((uECC_dword_t)(*r1) << uECC_WORD_BITS) | *r0;
-    *r2 += (p >> (uECC_WORD_BITS * 2 - 1));
-    p *= 2;
-    r01 += p;
-    *r2 += (r01 < p);
-    *r1 = r01 >> uECC_WORD_BITS;
-    *r0 = (uECC_word_t)r01;
-}
-
-uECC_VLI_API void uECC_vli_square(uECC_word_t *result,
-                                  const uECC_word_t *left,
-                                  wordcount_t num_words) {
-    uECC_word_t r0 = 0;
-    uECC_word_t r1 = 0;
-    uECC_word_t r2 = 0;
-
-    wordcount_t i, k;
-
-    for (k = 0; k < num_words * 2 - 1; ++k) {
-        uECC_word_t min = (k < num_words ? 0 : (k + 1) - num_words);
-        for (i = min; i <= k && i <= k - i; ++i) {
-            if (i < k - i) {
-                mul2add(left[i], left[k - i], &r0, &r1, &r2);
-            } else {
-                muladd(left[i], left[k - i], &r0, &r1, &r2);
-            }
-        }
-        result[k] = r0;
-        r0 = r1;
-        r1 = r2;
-        r2 = 0;
-    }
-
-    result[num_words * 2 - 1] = r0;
-}
-#endif /* !asm_square */
-
-#else /* uECC_SQUARE_FUNC */
-
-#if uECC_ENABLE_VLI_API
-uECC_VLI_API void uECC_vli_square(uECC_word_t *result,
-                                  const uECC_word_t *left,
-                                  wordcount_t num_words) {
-    uECC_vli_mult(result, left, left, num_words);
-}
-#endif /* uECC_ENABLE_VLI_API */
-
-#endif /* uECC_SQUARE_FUNC */
-
 /* Computes result = (left + right) % mod.
    Assumes that left < mod and right < mod, and that result does not overlap mod. */
-uECC_VLI_API void uECC_vli_modAdd(uECC_word_t *result,
+static void uECC_vli_modAdd(uECC_word_t *result,
                                   const uECC_word_t *left,
                                   const uECC_word_t *right,
                                   const uECC_word_t *mod,
@@ -728,7 +508,7 @@ uECC_VLI_API void uECC_vli_modAdd(uECC_word_t *result,
 
 /* Computes result = (left - right) % mod.
    Assumes that left < mod and right < mod, and that result does not overlap mod. */
-uECC_VLI_API void uECC_vli_modSub(uECC_word_t *result,
+static void uECC_vli_modSub(uECC_word_t *result,
                                   const uECC_word_t *left,
                                   const uECC_word_t *right,
                                   const uECC_word_t *mod,
@@ -743,7 +523,7 @@ uECC_VLI_API void uECC_vli_modSub(uECC_word_t *result,
 
 /* Computes result = product % mod, where product is 2N words long. */
 /* Currently only designed to work for curve_p or curve_n. */
-uECC_VLI_API void uECC_vli_mmod(uECC_word_t *result,
+static void uECC_vli_mmod(uECC_word_t *result,
                                 uECC_word_t *product,
                                 const uECC_word_t *mod,
                                 wordcount_t num_words) {
@@ -786,7 +566,7 @@ uECC_VLI_API void uECC_vli_mmod(uECC_word_t *result,
 }
 
 /* Computes result = (left * right) % mod. */
-uECC_VLI_API void uECC_vli_modMult(uECC_word_t *result,
+static void uECC_vli_modMult(uECC_word_t *result,
                                    const uECC_word_t *left,
                                    const uECC_word_t *right,
                                    const uECC_word_t *mod,
@@ -796,7 +576,7 @@ uECC_VLI_API void uECC_vli_modMult(uECC_word_t *result,
     uECC_vli_mmod(result, product, mod, num_words);
 }
 
-uECC_VLI_API void uECC_vli_modMult_fast(uECC_word_t *result,
+static void uECC_vli_modMult_fast(uECC_word_t *result,
                                         const uECC_word_t *left,
                                         const uECC_word_t *right,
                                         uECC_Curve curve) {
@@ -805,46 +585,11 @@ uECC_VLI_API void uECC_vli_modMult_fast(uECC_word_t *result,
     curve->mmod_fast(result, product);
 }
 
-#if uECC_SQUARE_FUNC
-
-#if uECC_ENABLE_VLI_API
-/* Computes result = left^2 % mod. */
-uECC_VLI_API void uECC_vli_modSquare(uECC_word_t *result,
-                                     const uECC_word_t *left,
-                                     const uECC_word_t *mod,
-                                     wordcount_t num_words) {
-    uECC_word_t product[2 * uECC_MAX_WORDS];
-    uECC_vli_square(product, left, num_words);
-    uECC_vli_mmod(result, product, mod, num_words);
-}
-#endif /* uECC_ENABLE_VLI_API */
-
-uECC_VLI_API void uECC_vli_modSquare_fast(uECC_word_t *result,
-                                          const uECC_word_t *left,
-                                          uECC_Curve curve) {
-    uECC_word_t product[2 * uECC_MAX_WORDS];
-    uECC_vli_square(product, left, curve->num_words);
-    curve->mmod_fast(result, product);
-}
-
-#else /* uECC_SQUARE_FUNC */
-
-#if uECC_ENABLE_VLI_API
-uECC_VLI_API void uECC_vli_modSquare(uECC_word_t *result,
-                                     const uECC_word_t *left,
-                                     const uECC_word_t *mod,
-                                     wordcount_t num_words) {
-    uECC_vli_modMult(result, left, left, mod, num_words);
-}
-#endif /* uECC_ENABLE_VLI_API */
-
-uECC_VLI_API void uECC_vli_modSquare_fast(uECC_word_t *result,
+static void uECC_vli_modSquare_fast(uECC_word_t *result,
                                           const uECC_word_t *left,
                                           uECC_Curve curve) {
     uECC_vli_modMult_fast(result, left, left, curve);
 }
-
-#endif /* uECC_SQUARE_FUNC */
 
 #define EVEN(vli) (!(vli[0] & 1))
 static void vli_modInv_update(uECC_word_t *uv,
@@ -862,7 +607,7 @@ static void vli_modInv_update(uECC_word_t *uv,
 
 /* Computes result = (1 / input) % mod. All VLIs are the same size.
    See "From Euclid's GCD to Montgomery Multiplication to the Great Divide" */
-uECC_VLI_API void uECC_vli_modInv(uECC_word_t *result,
+static void uECC_vli_modInv(uECC_word_t *result,
                                   const uECC_word_t *input,
                                   const uECC_word_t *mod,
                                   wordcount_t num_words) {
@@ -1266,7 +1011,7 @@ static uECC_word_t EccPoint_compute_public_key(uECC_word_t *result,
     return 1;
 }
 
-uECC_VLI_API void uECC_vli_nativeToBytes(uint8_t *bytes,
+static void uECC_vli_nativeToBytes(uint8_t *bytes,
                                          int num_bytes,
                                          const uECC_word_t *native) {
     wordcount_t i;
@@ -1276,7 +1021,7 @@ uECC_VLI_API void uECC_vli_nativeToBytes(uint8_t *bytes,
     }
 }
 
-uECC_VLI_API void uECC_vli_bytesToNative(uECC_word_t *native,
+static void uECC_vli_bytesToNative(uECC_word_t *native,
                                          const uint8_t *bytes,
                                          int num_bytes) {
     wordcount_t i;
@@ -1291,7 +1036,7 @@ uECC_VLI_API void uECC_vli_bytesToNative(uECC_word_t *native,
 
 /* Generates a random integer in the range 0 < random < top.
    Both random and top have num_words words. */
-uECC_VLI_API int uECC_generate_random_int(uECC_word_t *random,
+static int uECC_generate_random_int(uECC_word_t *random,
                                           const uECC_word_t *top,
                                           wordcount_t num_words) {
     uECC_word_t mask = (uECC_word_t)-1;
@@ -1315,30 +1060,6 @@ uECC_VLI_API int uECC_generate_random_int(uECC_word_t *random,
     return 0;
 }
 
-/*
-int uECC_make_key(uint8_t *public_key,
-                  uint8_t *private_key,
-                  uECC_Curve curve) {
-    uECC_word_t _private[uECC_MAX_WORDS];
-    uECC_word_t _public[uECC_MAX_WORDS * 2];
-    uECC_word_t tries;
-
-    for (tries = 0; tries < uECC_RNG_MAX_TRIES; ++tries) {
-        if (!uECC_generate_random_int(_private, curve->n, BITS_TO_WORDS(curve->num_n_bits))) {
-            return 0;
-        }
-
-        if (EccPoint_compute_public_key(_public, _private, curve)) {
-            uECC_vli_nativeToBytes(private_key, BITS_TO_BYTES(curve->num_n_bits), _private);
-            uECC_vli_nativeToBytes(public_key, curve->num_bytes, _public);
-            uECC_vli_nativeToBytes(
-                public_key + curve->num_bytes, curve->num_bytes, _public + curve->num_words);
-            return 1;
-        }
-    }
-    return 0;
-}
-*/
 static int uECC_shared_secret(const uint8_t *public_key,
                               const uint8_t *private_key,
                               uint8_t *secret,
@@ -1576,27 +1297,7 @@ static int uECC_sign_with_k(const uint8_t *private_key,
 
     return 1;
 }
-/*
-int uECC_sign(const uint8_t *private_key,
-              const uint8_t *message_hash,
-              unsigned hash_size,
-              uint8_t *signature,
-              uECC_Curve curve) {
-    uECC_word_t k[uECC_MAX_WORDS];
-    uECC_word_t tries;
 
-    for (tries = 0; tries < uECC_RNG_MAX_TRIES; ++tries) {
-        if (!uECC_generate_random_int(k, curve->n, BITS_TO_WORDS(curve->num_n_bits))) {
-            return 0;
-        }
-
-        if (uECC_sign_with_k(private_key, message_hash, hash_size, k, signature, curve)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-*/
 /* Compute an HMAC using K as a key (as in RFC 6979). Note that K is always
    the same size as the hash result size. */
 static void HMAC_init(const uECC_HashContext *hash_context, const uint8_t *K) {
@@ -1885,70 +1586,6 @@ static int uECC_verify(const uint8_t *public_key,
     /* Accept only if v == r. */
     return (int)(uECC_vli_equal(rx, r, num_words));
 }
-
-#if uECC_ENABLE_VLI_API
-
-unsigned uECC_curve_num_words(uECC_Curve curve) {
-    return curve->num_words;
-}
-
-unsigned uECC_curve_num_bytes(uECC_Curve curve) {
-    return curve->num_bytes;
-}
-
-unsigned uECC_curve_num_bits(uECC_Curve curve) {
-    return curve->num_bytes * 8;
-}
-
-unsigned uECC_curve_num_n_words(uECC_Curve curve) {
-    return BITS_TO_WORDS(curve->num_n_bits);
-}
-
-unsigned uECC_curve_num_n_bytes(uECC_Curve curve) {
-    return BITS_TO_BYTES(curve->num_n_bits);
-}
-
-unsigned uECC_curve_num_n_bits(uECC_Curve curve) {
-    return curve->num_n_bits;
-}
-
-const uECC_word_t *uECC_curve_p(uECC_Curve curve) {
-    return curve->p;
-}
-
-const uECC_word_t *uECC_curve_n(uECC_Curve curve) {
-    return curve->n;
-}
-
-const uECC_word_t *uECC_curve_G(uECC_Curve curve) {
-    return curve->G;
-}
-
-const uECC_word_t *uECC_curve_b(uECC_Curve curve) {
-    return curve->b;
-}
-
-void uECC_vli_mod_sqrt(uECC_word_t *a, uECC_Curve curve) {
-    curve->mod_sqrt(a, curve);
-}
-
-void uECC_vli_mmod_fast(uECC_word_t *result, uECC_word_t *product, uECC_Curve curve) {
-    curve->mmod_fast(result, product);
-}
-
-void uECC_point_mult(uECC_word_t *result,
-                     const uECC_word_t *point,
-                     const uECC_word_t *scalar,
-                     uECC_Curve curve) {
-    uECC_word_t tmp1[uECC_MAX_WORDS];
-    uECC_word_t tmp2[uECC_MAX_WORDS];
-    uECC_word_t *p2[2] = {tmp1, tmp2};
-    uECC_word_t carry = regularize_k(scalar, tmp1, tmp2, curve);
-
-    EccPoint_mult(result, point, p2[!carry], 0, curve->num_n_bits + 1, curve);
-}
-
-#endif /* uECC_ENABLE_VLI_API */
 
 
 // <RicMoo>
