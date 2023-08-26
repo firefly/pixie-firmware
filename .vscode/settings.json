@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "atomic": "c",
+        "random": "c",
+        "*.tcc": "c"
+    },
+    "C_Cpp.default.compilerPath": "/Users/ricmoo/Library/Arduino15/packages/esp32/tools/riscv32-esp-elf-gcc/esp-2021r2-patch5-8.4.0/bin/riscv32-esp-elf-g++",
+    "arduino.disableIntelliSenseAutoGen": true
+}
