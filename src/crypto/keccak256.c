@@ -24,7 +24,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "keccak256.h"
+#include "./keccak256.h"
 
 // RicMoo: we only care about Keccak256, so we hardcode the blocksize
 #define KECCAK256_BITS  (256)
