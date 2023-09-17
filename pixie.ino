@@ -42,8 +42,8 @@
 #endif
 
 
-#define FRAMERATE          (70)
-#define FRAMEDELAY         (1000 / (FRAMERATE))
+#define FRAMERATE          (60)
+#define FRAMEDELAY         (1000 / (FRAMERATE + 2))
 
 static TaskHandle_t taskSystemHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
