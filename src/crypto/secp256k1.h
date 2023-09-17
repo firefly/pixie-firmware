@@ -8,7 +8,7 @@
  *
  * Changes include:
  *  - Signatures are normalized to the canonical S value
- *  - The recid (27 or 29) is appended to signatures
+ *  - The recid (27 or 28) is appended to signatures
  *  - Fully compliant with RFC6979 (based on PR#51)
  *  - Dropped support for secp160r1 (conflicts with RFC6979) and all non-secp256k1 curves
  *  - secp256k1_ prefix added to exported function to protect from esp32 aliasing
@@ -52,15 +52,22 @@ extern "C" {
 #include <stdint.h>
 
 
-#define SECP256K1_SIGNATURE_SIZE        (65)
-#define SECP256K1_SHARED_SECRET_SIZE    (32)
+#define SECP256K1_SIGNATURE_SIZE             (65)
+
+#define SECP256K1_PRIVATEKEY_SIZE            (32)
+#define SECP256K1_DIGEST_SIZE                (32)
+
+#define SECP256K1_PUBLICKEY_SIZE             (65)
+#define SECP256K1_COMPRESSED_PUBLICKEY_SIZE  (33)
+
+#define SECP256K1_SHARED_SECRET_SIZE         (32)
 
 #define SECP256K1_SUCCESS  (1)
 #define SECP256K1_ERROR    (0)
 
 int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature);
 
-int32_t secp256k1_verify(uint8_t *digest, uint8_t *signature, uint8_t *publicKey);
+int32_t secp256k1_recoverPublicKey(uint8_t *digest, uint8_t *signature, uint8_t *publicKey);
 
 int32_t secp256k1_computePublicKey(uint8_t *privateKey, uint8_t *publicKey);
 
@@ -68,6 +75,7 @@ void secp256k1_compressPublicKey(uint8_t *publicKey, uint8_t *compressedPublicKe
 void secp256k1_decompressPublicKey(uint8_t *compressedPublicKey, uint8_t *publicKey);
 
 int32_t secp256k1_computeSharedSecret(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret);
+
 
 //int32_t secp256k1_addPoints(uint8_t *p0, uint8_t *p1);
 

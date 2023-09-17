@@ -43,7 +43,7 @@
 
 #include <stdint.h>
 
-#include "secp256k1.h"
+#include "./secp256k1.h"
 
 // #include "uECC.h"
 
