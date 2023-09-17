@@ -1,9 +1,9 @@
 
-#include "springboard.h"
+#include "./springboard.h"
 
 #include <stdlib.h>
 
-#include "scene.h"
+#include "./scene.h"
 
 #define FIREFLY_COUNT    (15)
 

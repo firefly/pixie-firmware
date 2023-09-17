@@ -7,8 +7,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include "font.h"
-#include "scene.h"
+#include "./font.h"
+#include "./scene.h"
 
 typedef struct TextInfo {
     // 5 bits alpha, 1 bit isConst, 1 bit isAlloc, 1 bit flipPage

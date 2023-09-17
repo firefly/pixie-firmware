@@ -2,7 +2,7 @@
 // See: https://easings.net/#easeInOutExpo
 
 
-#include "curves.h"
+#include "./curves.h"
 
 
 const fixed_t FM_PI_2   = 0x19220;

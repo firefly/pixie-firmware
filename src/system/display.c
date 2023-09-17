@@ -5,7 +5,7 @@
  */
 
 
-#include "display.h"
+#include "./display.h"
 
 #include <stdio.h>
 #include <string.h>
