@@ -5,8 +5,8 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 
-#include "crypto/keccak256.h"
-#include "crypto/secp256k1.h"
+#include "keccak256.h"
+#include "secp256k1.h"
 
 #include "system/curves.h"
 #include "system/display.h"
