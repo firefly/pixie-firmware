@@ -33,7 +33,6 @@
 #include <math.h>
 
 #include <string.h>
-// #include <stdint.h>
 
 #include "./sha2.h"
 
@@ -141,6 +140,7 @@ static uint64_t getConstant512(uint32_t index, uint32_t init) {
     return  ((uint64_t)kHi[index] << 32) | kLo[index];;
 }
 
+/*
 static const uint32_t K256_2[] = {
     0x6a09e667UL,
 	0xbb67ae85UL,
@@ -151,7 +151,8 @@ static const uint32_t K256_2[] = {
 	0x1f83d9abUL,
 	0x5be0cd19UL
 };
-
+*/
+/*
 static const uint32_t K256_3[64] = {
 	0x428a2f98UL, 0x71374491UL, 0xb5c0fbcfUL, 0xe9b5dba5UL,
 	0x3956c25bUL, 0x59f111f1UL, 0x923f82a4UL, 0xab1c5ed5UL,
@@ -170,8 +171,8 @@ static const uint32_t K256_3[64] = {
 	0x748f82eeUL, 0x78a5636fUL, 0x84c87814UL, 0x8cc70208UL,
 	0x90befffaUL, 0xa4506cebUL, 0xbef9a3f7UL, 0xc67178f2UL
 };
-
-void sha256_init(Sha256Context *context) {
+*/
+void sha2_initSha256(Sha256Context *context) {
     for (int_fast8_t i = 0; i < 8; i++) {
         context->state[i] = getConstant256(i, 1);
     }
@@ -240,7 +241,7 @@ static void increment_bitcount(Sha256Context *context, uint32_t count) {
     context->bitCount += count;
 }
 
-void sha256_update(Sha256Context *context, const uint8_t *data, uint32_t dataLength) {
+void sha2_updateSha256(Sha256Context *context, const uint8_t *data, uint32_t dataLength) {
     if (dataLength == 0) { return; }
 
     unsigned int freespace, usedspace;
@@ -295,7 +296,7 @@ void sha256_update(Sha256Context *context, const uint8_t *data, uint32_t dataLen
     usedspace = freespace = 0;
 }
 
-void sha256_final(Sha256Context *context, uint8_t *digest) {
+void sha2_finalSha256(Sha256Context *context, uint8_t *digest) {
     unsigned int usedspace;
 
     usedspace = (context->bitCount >> 3) % SHA256_BLOCK_LENGTH;

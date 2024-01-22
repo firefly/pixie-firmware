@@ -1,17 +1,22 @@
 
+#include <stdio.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_timer.h"
 
-#include "src/crypto/keccak256.h"
-#include "src/crypto/secp256k1.h"
+#include "crypto/keccak256.h"
+#include "crypto/secp256k1.h"
 
-#include "src/system/curves.h"
-#include "src/system/display.h"
-#include "src/system/keypad.h"
-#include "src/system/pixels.h"
-#include "src/system/scene.h"
+#include "system/curves.h"
+#include "system/display.h"
+#include "system/keypad.h"
+#include "system/pixels.h"
+#include "system/scene.h"
 
-#include "src/system/output.h"
+#include "system/output.h"
 
-#include "src/images/img_moonbeam.h"
+#include "images/img_moonbeam.h"
 
 #define BOARD_REV         (3)
 
@@ -52,6 +57,10 @@
 static TaskHandle_t taskSystemHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
 static uint32_t systemReady = 0;
+
+uint32_t millis() {
+    return esp_timer_get_time() / 1000;
+}
 
 void bounce(SceneContext scene, Node node, SceneActionStop stopAction) {
     Point point = scene_nodePosition(node);
@@ -106,8 +115,8 @@ void taskSystemFunc(void* pvParameter) {
     // I/O contexts
     DisplayContext display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
     KeypadContext keypad = keypad_init(keys);
-    PixelsContext pixels = pixels_init();
-    pixels_setRGB(pixels, 0, 0xffffffff);
+    //PixelsContext pixels = pixels_init();
+    //pixels_setRGB(pixels, 0, 0xffffffff);
 
     // DEBUG; allow halting device on tight crash loops
     keypad_sample(keypad);
@@ -120,7 +129,7 @@ void taskSystemFunc(void* pvParameter) {
                 esp_restart();
                 while(1);
             }
-            delay(16);
+            vTaskDelay(16);
         }
     }
 
@@ -132,16 +141,16 @@ void taskSystemFunc(void* pvParameter) {
     scene_appendChild(root, fill);
 
     Node img = scene_createImage(scene, moonbeam, sizeof(moonbeam));
-    scene_nodeSetPosition(img, { .x = 150, .y = 0 });
+    scene_nodeSetPosition(img, (Point){ .x = 150, .y = 0 });
     scene_appendChild(root, img);
 
     Node img2 = scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
     scene_appendChild(root, img2);
 
-    char fpsTextBuffer[8];
+    char fpsTextBuffer[10];
     Node fpsText = scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
     scene_appendChild(root, fpsText);
-    scene_nodeSetPosition(fpsText, { .x = 200, .y = 230 });
+    scene_nodeSetPosition(fpsText, (Point){ .x = 200, .y = 230 });
 
     char fpsContent[4];
     snprintf(fpsContent, 4, "%-2d", 0);
@@ -150,14 +159,14 @@ void taskSystemFunc(void* pvParameter) {
     const char* const phrase = "Hello y g World!";
     Node text = scene_createText(scene, phrase, strlen(phrase));
     scene_appendChild(root, text);
-    scene_nodeSetPosition(text, { .x = 100, .y = 120 });
+    scene_nodeSetPosition(text, (Point){ .x = 100, .y = 120 });
 
     AnimationId animation = AnimationIdNull;
 
     //for (uint32_t i = 0; i < 300; i++) 
     {
-        Node box = scene_createBox(scene, { .width = 20, .height = 20 }, RGB(0, 0, 255));
-        scene_nodeSetPosition(box, { .x = 10, .y = 10 });
+        Node box = scene_createBox(scene, (Size){ .width = 20, .height = 20 }, RGB(0, 0, 255));
+        scene_nodeSetPosition(box, (Point){ .x = 10, .y = 10 });
         scene_appendChild(root, box);
         bounce(scene, box, SceneActionStopFinal);
     }
@@ -190,7 +199,7 @@ void taskSystemFunc(void* pvParameter) {
             keypad_latch(keypad);
 
             if (keypad_didChange(keypad, keys)) {
-                printf("KEYS: CHANGE=%4x SW1=%d SW2=%d SW3=%d SW4=%d\n", keypad_didChange(keypad, keys), keypad_isDown(keypad, PIN_BUTTON_1),
+                printf("KEYS: CHANGE=%4lx SW1=%ld SW2=%ld SW3=%ld SW4=%ld\n", keypad_didChange(keypad, keys), keypad_isDown(keypad, PIN_BUTTON_1),
                 keypad_isDown(keypad, PIN_BUTTON_2), keypad_isDown(keypad, PIN_BUTTON_3), keypad_isDown(keypad, PIN_BUTTON_4));
             }
 
@@ -226,7 +235,7 @@ void taskSystemFunc(void* pvParameter) {
             if (fpsTrigger++ > 100) {
                 fpsTrigger = 0;
                 uint32_t fps = display_fps(display);
-                snprintf(fpsContent, 4, "%2d", fps);
+                snprintf(fpsContent, 4, "%-2d", (uint8_t)fps);
                 scene_textSetText(fpsText, fpsContent, 4);
             }
 
@@ -250,18 +259,17 @@ void taskSystemFunc(void* pvParameter) {
 void taskAppFunc(void* pvParameter) {
   while (1) {
     printf("Hello from App\n");
-    delay(10000);
+    vTaskDelay(10000);
   }
 }
 
 
 void setup() {
-  Serial.begin(9600);
   printf("Hello world!\n");
 
   // Start the System Process (handles the display and keypad)
-  xTaskCreatePinnedToCore(&taskSystemFunc, "sys", 8192 * 24, NULL, 1, &taskSystemHandle, 0);
-  printf("Initializing system task: %d\n", taskSystemHandle != NULL);
+  BaseType_t foo = xTaskCreatePinnedToCore(&taskSystemFunc, "sys", 8192 * 20, NULL, 1, &taskSystemHandle, 0);
+  printf("Initializing system task: %d %d\n", taskSystemHandle != NULL, foo);
   assert(taskSystemHandle != NULL);
 
   // Wait for the System Process to complete setup
@@ -275,10 +283,10 @@ void setup() {
 }
 
 void loop() {
-    printf("[System] High-Water Marks: sys=%d, app=%d freq=%d MOO\n",
+    printf("[System] High-Water Marks: sys=%d, app=%d freq=%ld\n",
          uxTaskGetStackHighWaterMark(taskSystemHandle),
          uxTaskGetStackHighWaterMark(taskAppHandle),
-         portTICK_RATE_MS);
+         portTICK_PERIOD_MS);
 
     {
         int32_t t0 = millis();
@@ -299,7 +307,7 @@ void loop() {
         for (int i = 0; i < KECCAK256_DIGEST_SIZE; i++) {
             printf("%02x", checksum[i]);
         }
-        printf(" (took %ds)\n", dt);
+        printf(" (took %lds)\n", dt);
     }
 
     {
@@ -315,8 +323,16 @@ void loop() {
         for (int i = 0; i < SECP256K1_SIGNATURE_SIZE; i++) {
             printf("%02x", signature[i]);
         }
-        printf(" (took %ds)\n", dt);
+        printf(" (took %lds)\n", dt);
     }
 
-    vTaskDelay(5000 / portTICK_RATE_MS);
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+}
+
+void app_main() {
+    setup();
+
+    while (1) {
+        loop();
+    }
 }

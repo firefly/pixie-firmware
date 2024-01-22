@@ -134,8 +134,8 @@ AnimationId scene_boxAnimateColorAlpha(SceneContext scene, Node node, rgba_t tar
 AnimationId scene_boxAnimateSize(SceneContext scene, Node node, Size target, uint32_t duration, CurveFunc curve);
 
 // Images
-Node scene_createImage(SceneContext scene, const uint8_t *data, uint32_t dataLength);
-uint8_t* scene_imageData(Node node);
+Node scene_createImage(SceneContext scene, const uint16_t *data, uint32_t dataLength);
+uint16_t* scene_imageData(Node node);
 Size scene_imageSize(Node node);
 
 // A spritesheet is a 32x32 tile node where each tile is an index into the spriteData for that position

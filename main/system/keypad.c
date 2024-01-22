@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <driver/gpio.h>
+#include <hal/gpio_ll.h>
 
 #include "./keypad.h"
 

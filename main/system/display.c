@@ -14,7 +14,7 @@
 #include <freertos/task.h>
 #include <driver/spi_master.h>
 #include <driver/gpio.h>
-
+#include <hal/gpio_ll.h>
 #include "soc/gpio_struct.h"
 
 // If using a display with the CS pin pulled low
@@ -347,7 +347,7 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     context->currentY = 0;
 
     // Setup the Transaction parameters that are the same (ish) for all display updates
-    for (uint i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < 4; i++) {
         memset(&(context->transactions[i]), 0, sizeof(spi_transaction_t));
         context->transactions[i].rx_buffer = NULL;
         context->transactions[i].flags = SPI_TRANS_USE_TXDATA;
@@ -464,7 +464,7 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     context->frameCount = 0;
     context->t0 = millis();
 
-    printf("[DisplayDriver] Initialized: %d ms\n", context->t0 - t0);
+    printf("[DisplayDriver] Initialized: %ld ms\n", context->t0 - t0);
 
     return context;
 }

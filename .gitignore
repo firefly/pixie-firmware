@@ -1,0 +1,7 @@
+build/**
+obsolete/**
+
+sdkconfig.ci
+sdkconfig.old
+
+**/*.swp

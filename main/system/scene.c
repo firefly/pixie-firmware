@@ -367,6 +367,8 @@ uint32_t scene_sequence(SceneContext _scene) {
 
     // Sequence all the nodes
     scene->root->func.sequenceFunc(scene, PointZero, scene->root);
+
+    return 1; // @TODO: return void?
 }
 
 void scene_render(SceneContext _scene, uint8_t *fragment, int32_t y0, int32_t height) {
@@ -789,6 +791,10 @@ Size scene_boxGetSize(Node _node) {
  */
 
 static  void _imageRender(Point pos, Property a, Property b, uint16_t *frameBuffer, int32_t y0, int32_t height) {
+    // printf("SS: %d %d", b.size.width, b.size.height);
+
+    // @TODO: Move quick checks to _sequence?
+
     // The box is above the fragment or to the right of the display; skip
     if (pos.y >= y0 + height || pos.x >= 240) { return; }
 
@@ -822,10 +828,10 @@ static  void _imageRender(Point pos, Property a, Property b, uint16_t *frameBuff
     // Skip the header bytes
     ix += 2;
 
-    uint16_t *data = (uint16_t*)(a.data);
+    uint16_t *data = (uint16_t*)(a.ptr);
     for (int32_t y = oh; y; y--) {
         uint16_t *output = &frameBuffer[(240 * (oy + y - 1)) + ox];
-        uint16_t *input = &data[2 + ((iy + y - 1) * w) + ix];
+        uint16_t *input = &data[((iy + y - 1) * w) + ix];
         for (int32_t x = ow; x; x--) {
             *output++ = *input++;
         }
@@ -833,23 +839,23 @@ static  void _imageRender(Point pos, Property a, Property b, uint16_t *frameBuff
 }
 
 static void _imageSequence(_SceneContext *scene, Point worldPos,  _Node* node) {
+    // Do simple checks here and include ix, ox, etc in the b?
     _Node *render = _addRenderNode(scene, node, worldPos, _imageRender);
     if (render == NULL) { return; }
     render->a = node->a;
     render->b = node->b;
 }
 
-static Size _imageValidate(const uint8_t *data, uint32_t dataLength) {
+static Size _imageValidate(const uint16_t *data, uint32_t dataLength) {
     Size size;
-    size.width = data[1] + 1;
-    size.height = data[2] + 1;
-    
+    size.width = (data[1] >> 8) + 1;
+    size.height = (data[1] & 0xff) + 1;
     // @TODO validate image data
 
     return size;
 }
 
-Node scene_createImage(SceneContext _scene, const uint8_t *data, uint32_t dataLength) {
+Node scene_createImage(SceneContext _scene, const uint16_t *data, uint32_t dataLength) {
     _SceneContext* scene = _scene;
     
     Size size = _imageValidate(data, dataLength);
@@ -860,17 +866,17 @@ Node scene_createImage(SceneContext _scene, const uint8_t *data, uint32_t dataLe
 
     node->func.sequenceFunc = _imageSequence;
 
-    node->a.data = (uint8_t*)data;
+    node->a.ptr = data;
     node->b.size = size;
 
     return node;
 }
 
-uint8_t* scene_imageData(Node _node) {
+uint16_t* scene_imageData(Node _node) {
     _Node *node = _node;
     if (node == NULL) { return NULL; }
 
-    return node->a.data;
+    return node->a.ptr;
 }
 
 Size scene_imageSize(Node _node) {
@@ -999,7 +1005,7 @@ static  void _textRender(Point pos, Property a, Property b, uint16_t *frameBuffe
     }
 
     // Recompute the length and width for the *actual* text
-    length = strnlen(text, length);
+    length = strnlen((char*)text, length);
     textWidth = ((FONT_WIDTH + 1) * length) - 1;
 
     // The text length is to the left of the screen
@@ -1108,7 +1114,7 @@ static  void _textRender(Point pos, Property a, Property b, uint16_t *frameBuffe
                 if (row & 0x01) {
                     *output++ = 0xffff;
                 } else {
-                    *output++;
+                    (void)(*output++);
                 }
                 row >>= 1;
             }
@@ -1188,7 +1194,7 @@ void scene_textSetText(Node _node, const char* const text, uint32_t _length) {
     uint32_t offset = ((flags ^ 0x01) & TextFlagFlipPage) * length; 
     if (_length < length) { length = _length; }
 
-    strncpy(&node->a.data[offset], text, length);
+    strncpy((char*)(&node->a.data[offset]), text, length);
     node->b.text.flags ^= TextFlagFlipPage;
 }
 
@@ -1220,44 +1226,44 @@ static void dumpNode(_SceneContext *scene, _Node *node, uint32_t indent) {
     padding[2 * indent] = 0;
 
     if (node->func.sequenceFunc == _groupSequence) {
-        printf("%s    - Group Node %d (x=%d, y=%d)\n", padding, _getNodeIndex(scene, node), node->pos.x, node->pos.y);
+        printf("%s    - Group Node %ld (x=%d, y=%d)\n", padding, _getNodeIndex(scene, node), node->pos.x, node->pos.y);
         dumpNode(scene, node->a.ptr, indent + 1);
 
     } else if (node->func.sequenceFunc == _boxSequence) {
-        printf("%s    - Box Node %d (x=%d, y=%d, width=%d, height=%d, color=0x%04x)\n", padding,
+        printf("%s    - Box Node %ld (x=%d, y=%d, width=%d, height=%d, color=0x%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, node->a.size.width, node->a.size.height,
             __builtin_bswap16(node->b.u32));
     } else if (node->func.sequenceFunc == _fillSequence) {
-        printf("%s    - Fill Node %d (color=0x%04x)\n", padding, _getNodeIndex(scene, node), __builtin_bswap16(node->a.u32));
+        printf("%s    - Fill Node %ld (color=0x%04x)\n", padding, _getNodeIndex(scene, node), __builtin_bswap16(node->a.u32));
     } else if (node->func.sequenceFunc == _imageSequence) {
-        printf("%s    - Image Node %d (x=%d, y=%d, width=%d, height=%d, type=0x%02x)\n", padding,
+        printf("%s    - Image Node %ld (x=%d, y=%d, width=%d, height=%d, type=0x%02x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, node->b.size.width, node->b.size.height, node->a.data[0]);
     } else if (node->func.sequenceFunc == _textSequence) {
         TextInfo info = node->b.text;
-        printf("%s    - Text Node %d (x=%d, y=%d, text=@TODO, flags=%x, length=%d, color=%04x)\n", padding,
+        printf("%s    - Text Node %ld (x=%d, y=%d, text=@TODO, flags=%x, length=%d, color=%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, info.flags, info.length, info.color);
 
     } else if (node->func.sequenceFunc == _freeSequence) {
-        printf("%s    - Pending Free Node %d\n", padding, _getNodeIndex(scene, node));
+        printf("%s    - Pending Free Node %ld\n", padding, _getNodeIndex(scene, node));
 
     } else if (node->func.sequenceFunc == _animationCompletionSequence) {
         uint32_t animationId = (node->pos.x << 16) | node->pos.y;
 
-        printf("%s    - Animation Completion Callback %d (animationId=%d, target=%d)\n", padding,
+        printf("%s    - Animation Completion Callback %ld (animationId=%ld, target=%ld)\n", padding,
             _getNodeIndex(scene, node), animationId, _getNodeIndex(scene, node->b.ptr));
 
     } else if (node->func.renderFunc == _boxRender) {
-        printf("%s    - Box Render Node %d (x=%d, y=%d, width=%d, height=%d, color=0x%04x)\n", padding,
+        printf("%s    - Box Render Node %ld (x=%d, y=%d, width=%d, height=%d, color=0x%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, node->a.size.width, node->a.size.height,
             __builtin_bswap16 (node->b.u32));
     } else if (node->func.renderFunc == _fillRender) {
-        printf("%s    - Fill Render Node %d (color=0x%04x)\n", padding, _getNodeIndex(scene, node), __builtin_bswap16 (node->a.u32));
+        printf("%s    - Fill Render Node %ld (color=0x%04x)\n", padding, _getNodeIndex(scene, node), __builtin_bswap16 (node->a.u32));
     } else if (node->func.renderFunc == _imageRender) {
-        printf("%s    - Image Render Node %d (x=%d, y=%d, width=%d, height=%d, type=0x%02x)\n", padding,
+        printf("%s    - Image Render Node %ld (x=%d, y=%d, width=%d, height=%d, type=0x%02x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, node->b.size.width, node->b.size.height, node->a.data[0]);
     } else if (node->func.renderFunc == _textRender) {
         TextInfo info = node->b.text;
-        printf("%s    - Text Render Node %d (x=%d, y=%d, text=@TODO, flags=%x, length=%d, color=%04x)\n", padding,
+        printf("%s    - Text Render Node %ld (x=%d, y=%d, text=@TODO, flags=%x, length=%d, color=%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, info.flags, info.length, info.color);
 
     } else if (node->func.animateFunc == _nodeAnimatePosition) {
@@ -1265,11 +1271,11 @@ static void dumpNode(_SceneContext *scene, _Node *node, uint32_t indent) {
         int32_t end = node->b.i32;
         float t = 1.0f - ((float)(end - scene->tick) / (float)duration);
         if (t >= 1.0f) { t = 1.0f; }
-        printf("%s    - Position Animate Node %d (start=%d, end=%d, t=%f, duration=%d, target=%d)\n", padding,
+        printf("%s    - Position Animate Node %ld (start=%ld, end=%ld, t=%f, duration=%ld, target=%ld)\n", padding,
             _getNodeIndex(scene, node), end - duration, end, t, duration, _getNodeIndex(scene, node->a.ptr));
 
     } else {
-        printf("%s    - Unknown Node %d (x=%d, y=%d)\n", padding, _getNodeIndex(scene, node), node->pos.x, node->pos.y);  
+        printf("%s    - Unknown Node %ld (x=%d, y=%d)\n", padding, _getNodeIndex(scene, node), node->pos.x, node->pos.y);  
     }
 
     if (node->nextNode != NULL) { dumpNode(scene, node->nextNode, indent); }
@@ -1278,8 +1284,8 @@ static void dumpNode(_SceneContext *scene, _Node *node, uint32_t indent) {
 void scene_dump(SceneContext _scene) {
     _SceneContext *scene = _scene;
     printf("Scene: %p\n", scene);
-    printf("  - tick: %d\n", scene->tick);
-    printf("  - nextFree: %d\n", _getNodeIndex(scene, scene->nextFree));
+    printf("  - tick: %ld\n", scene->tick);
+    printf("  - nextFree: %ld\n", _getNodeIndex(scene, scene->nextFree));
 
     printf("  - Scene Graph:\n");
     dumpNode(scene, scene->root, 0);

@@ -392,6 +392,6 @@ fixed_t CurveEaseOutBounce(fixed_t t) {
 fixed_t CurveEaseInOutBounce(fixed_t t) {
     // return t < 0.5f ? (1.0f - CurveEaseOutBounce(1.0f - 2.0f * t)) / 2.0f:
     //     (1.0f + CurveEaseOutBounce(2.0f * t - 1.0f)) / 2.0f;
-    if (t < FM_1_2) { return (FM_1 - CurveEaseOutBounce(FM_1 - (t << 1)) >> 1); }
+    if (t < FM_1_2) { return (FM_1 - CurveEaseOutBounce(FM_1 - (t << 1))) >> 1; }
     return (FM_1 + CurveEaseOutBounce((t << 1) - FM_1)) >> 1;
 }

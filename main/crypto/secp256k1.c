@@ -45,6 +45,7 @@
 
 #include "./secp256k1.h"
 
+#include "./sha2.h"
 // #include "uECC.h"
 
 struct uECC_Curve_t;
@@ -1600,17 +1601,17 @@ typedef struct HashContext {
 
 void init_SHA256(const uECC_HashContext *base) {
     HashContext *context = (HashContext *)base;
-    sha256_init(&context->ctx);
+    sha2_initSha256(&context->ctx);
 }
 
 void update_SHA256(const uECC_HashContext *base, const uint8_t *message, unsigned message_size) {
     HashContext *context = (HashContext *)base;
-    sha256_update(&context->ctx, message, message_size);
+    sha2_updateSha256(&context->ctx, message, message_size);
 }
 
 void finish_SHA256(const uECC_HashContext *base, uint8_t *hash_result) {
     HashContext *context = (HashContext *)base;
-    sha256_final(&context->ctx, hash_result);
+    sha2_finalSha256(&context->ctx, hash_result);
 }
 
 int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature) {
