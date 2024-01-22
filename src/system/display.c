@@ -18,7 +18,7 @@
 #include "soc/gpio_struct.h"
 
 // If using a display with the CS pin pulled low
-#define NO_CS_PIN  (0)
+//#define NO_CS_PIN  (1)
 
 #define DISPLAY_HEIGHT    240
 #define DISPLAY_WIDTH     240
@@ -421,13 +421,15 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     };
 
     // For ST7789 w/o a CS (i.e. pulled to ground)
-    if (NO_CS_PIN) {
-        // SPI mode 3 (CPOL = 1, CPHA = 1)
-        devConfig.mode = 3;
+    //if (NO_CS_PIN) {
 
-        // CS pin (not used)
-        devConfig.spics_io_num = -1;
-    }
+    // SPI mode 3 (CPOL = 1, CPHA = 1)
+    devConfig.mode = 3;
+
+    // CS pin (not used)
+    devConfig.spics_io_num = -1;
+
+    //}
 
     // printf("SPI Device: mode=%d, CS0=%d\n", devConfig.mode, devConfig.spics_io_num);
 

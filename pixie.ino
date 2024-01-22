@@ -6,11 +6,14 @@
 #include "src/system/curves.h"
 #include "src/system/display.h"
 #include "src/system/keypad.h"
+#include "src/system/pixels.h"
 #include "src/system/scene.h"
 
 #include "src/system/output.h"
 
-#define BOARD_REV         (2)
+#include "src/images/img_moonbeam.h"
+
+#define BOARD_REV         (3)
 
 
 #if BOARD_REV == 2
@@ -19,9 +22,9 @@
 // tie it to ground to save the pin (as the display is always selected) which
 // allow re-arranging the pins a bit to aid in cleaner trace routing.
 
+#define DISPLAY_BUS        (DisplaySpiBus2_cs)
 #define PIN_DISPLAY_DC     (0)
 #define PIN_DISPLAY_RESET  (5)
-#define PIN_DISPLAY_CS     (10)
 
 #define PIN_BUTTON_1       (1 << 2)
 #define PIN_BUTTON_2       (1 << 3)
@@ -30,19 +33,20 @@
 
 #elif BOARD_REV == 3
 
+#define DISPLAY_BUS        (DisplaySpiBus2)
 #define PIN_DISPLAY_DC     (4)
 #define PIN_DISPLAY_RESET  (5)
-#define PIN_DISPLAY_CS     (-1)
 
-#define PIN_BUTTON_1       (1 << 2)
-#define PIN_BUTTON_2       (1 << 3)
-#define PIN_BUTTON_3       (1 << 10)
-#define PIN_BUTTON_4       (1 << 0)
+
+#define PIN_BUTTON_1       (1 << 10)
+#define PIN_BUTTON_2       (1 << 8)
+#define PIN_BUTTON_3       (1 << 3)
+#define PIN_BUTTON_4       (1 << 2)
 
 #endif
 
 
-#define FRAMERATE          (60)
+#define FRAMERATE          (48)
 #define FRAMEDELAY         (1000 / (FRAMERATE + 2))
 
 static TaskHandle_t taskSystemHandle = NULL;
@@ -100,8 +104,10 @@ void taskSystemFunc(void* pvParameter) {
     */
 
     // I/O contexts
-    DisplayContext display = display_init(DisplaySpiBus2, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
+    DisplayContext display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
     KeypadContext keypad = keypad_init(keys);
+    PixelsContext pixels = pixels_init();
+    pixels_setRGB(pixels, 0, 0xffffffff);
 
     // DEBUG; allow halting device on tight crash loops
     keypad_sample(keypad);
@@ -122,10 +128,15 @@ void taskSystemFunc(void* pvParameter) {
 
     SceneContext scene = scene_init(2048);
     Node root = scene_root(scene);
-    Node fill = scene_createFill(scene, RGB(0x23, 0x3b, 0x52));
+    Node fill = scene_createFill(scene, 0x21ea); //RGB(0x23, 0x3b, 0x52));
     scene_appendChild(root, fill);
-    // Node img = scene_createImage(scene, screen, sizeof(screen));
-    // scene_appendChild(root, img);
+
+    Node img = scene_createImage(scene, moonbeam, sizeof(moonbeam));
+    scene_nodeSetPosition(img, { .x = 150, .y = 0 });
+    scene_appendChild(root, img);
+
+    Node img2 = scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
+    scene_appendChild(root, img2);
 
     char fpsTextBuffer[8];
     Node fpsText = scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
@@ -219,17 +230,17 @@ void taskSystemFunc(void* pvParameter) {
                 scene_textSetText(fpsText, fpsContent, 4);
             }
 
-            if (lastFrameTime == 0) { lastFrameTime = xTaskGetTickCount(); }
-            int32_t skewLastFrameTime = lastFrameTime;
+            //if (lastFrameTime == 0) { lastFrameTime = xTaskGetTickCount() - FRAMEDELAY; }
+            // int32_t skewLastFrameTime = lastFrameTime;
 
-            BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, FRAMEDELAY);
+            //BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, FRAMEDELAY);
 
-            // // We are falling behind, catch up by dropping frames
-            if (didDelay == pdFALSE) {
-                uint32_t dt = xTaskGetTickCount() - skewLastFrameTime;
-                printf("[System.Display] Framerate Skew Detected; dt=%d dropped=%d\n", dt, (dt + FRAMEDELAY - 1) / FRAMEDELAY);
-                lastFrameTime = 0;
-            }
+            // We are falling behind, catch up by dropping frames
+            //if (didDelay == pdFALSE) {
+                //uint32_t dt = xTaskGetTickCount() - skewLastFrameTime;
+                //printf("[System.Display] Framerate Skew Detected; dt=%d dropped=%d\n", dt, (dt + FRAMEDELAY - 1) / FRAMEDELAY);
+            //    lastFrameTime = 0;
+            //}
         }
 
         fflush(stdout);

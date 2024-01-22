@@ -23,6 +23,11 @@ extern "C" {
 #define RGB(r,g,b)     ((((r) & 0xf8) << 8) | (((g) & 0xfc) << 3) | (((b) & 0xf8) >> 3))
 #define RGBA(r,g,b,a)  (RGB((r),(g),(b)) | ((0xff - ((a) & 0xff)) << 16))
 
+// uint32_t HSV(uint32_t hue, uint32_t saturation, uint32_t value) {
+
+// }
+
+// #define HSVA(h,s,v,a)   ((HSV((h),(s),(v)) << 8) | )
 
 // SPI Bus Options
 typedef enum DisplaySpiBus {
@@ -31,7 +36,8 @@ typedef enum DisplaySpiBus {
     //DisplaySpiBusVspi = _ENCODE_SPI_BUS(5, 18, 19, 23),
 
     // ESP32-C3
-    DisplaySpiBus2 = _ENCODE_SPI_BUS(10, 6, 2, 7)
+    DisplaySpiBus2_cs = _ENCODE_SPI_BUS(10, 6, 2, 7),
+    DisplaySpiBus2 = _ENCODE_SPI_BUS(0, 6, 2, 7)
 } DisplaySpiBus;
 
 // This assumes the pins on the board are opposite the ribbon side
