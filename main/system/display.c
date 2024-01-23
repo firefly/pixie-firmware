@@ -17,6 +17,7 @@
 #include <hal/gpio_ll.h>
 #include "soc/gpio_struct.h"
 
+#include "./utils.h"
 // If using a display with the CS pin pulled low
 //#define NO_CS_PIN  (1)
 
@@ -152,7 +153,7 @@ typedef struct _DisplayContext {
     // The currently inflight fragment (-1 for none; first round)
     int8_t inflightFragment;
 
-    // The pins for D/C (Data/Contral), Reset and the Backlight
+    // The pins for D/C (Data/Contral) and Reset
     uint8_t pinDC;
     uint8_t pinReset;
 
@@ -168,14 +169,6 @@ typedef struct _DisplayContext {
     // The prepared SPI transactions for sending fragments
     spi_transaction_t transactions[4];
 } _DisplayContext;
-
-static uint32_t millis() {
-    return xTaskGetTickCount();
-}
-
-static void delay(uint32_t duration) {
-    vTaskDelay((duration + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS);
-}
 
 static void* st7789_wrapTransaction(_DisplayContext *context, MessageType dc) {
     return (void*)((dc << 7) | context->pinDC);
@@ -323,7 +316,7 @@ static void st7789_await_fragment(_DisplayContext *context) {
 // Initialize the display driver for the ST7789 on a SPI bus. This requires using
 // malloc because the memory acquired must be DMA compatible.
 DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinReset, DisplayRotation rotation) {
-    uint32_t t0 = millis();
+    uint32_t t0 = ticks();
 
     assert((DISPLAY_HEIGHT % DisplayFragmentHeight) == 0);
 
@@ -462,7 +455,7 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     // Bookkeeping for statistics
     context->frame = 0;
     context->frameCount = 0;
-    context->t0 = millis();
+    context->t0 = ticks();
 
     printf("[DisplayDriver] Initialized: %ld ms\n", context->t0 - t0);
 
@@ -501,12 +494,12 @@ uint32_t display_renderScene(DisplayContext _context, SceneContext scene) {
 
     scene_render(scene, context->fragments[backbufferFragment], y0, DisplayFragmentHeight);
 
-    // uint32_t spareTime = millis();
+    // uint32_t spareTime = ticks();
 
     // Wait for the previous (if any; first time does not) transactions to complete
     if (context->inflightFragment != -1) {
         st7789_await_fragment(context);
-    //     spareTime = millis() - spareTime;
+    //     spareTime = ticks() - spareTime;
     // } else {
     //     spareTime = 0;
     }
