@@ -9,12 +9,15 @@ extern "C" {
 
 #define PIXEL_COUNT    (1)
 
+#define RGB32(r,g,b)    (((r) << 16) | ((g) << 8) | (b))
 
 // Keypad Context Object (opaque; do not inspect or rely on internals)
 typedef void* PixelsContext;
 
-PixelsContext pixels_init();
+PixelsContext pixels_init(uint32_t pin);
 void pixels_free(PixelsContext context);
+
+void pixels_tick(PixelsContext context);
 
 // #define encodeRGB(r,g,b)      ((r ))
 // #define encodeHSV(h,s,v)      ((((h) & 0x7fff) << 16) | (((s) & 0xff) << 8) | (((v) & 0xff)))

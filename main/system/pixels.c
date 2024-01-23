@@ -2,29 +2,42 @@
 
 #include <string.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #include "esp_check.h"
 
 #include "driver/rmt_encoder.h"
 #include "driver/rmt_tx.h"
 
+#include "./utils.h"
+
 #define LED_COUNT     (1)
 #define MAX_COLORS    (16)
+
+typedef enum AnimationType {
+    AnimationTypeNone    = 0,
+    AnimationTypeNormal  = 1,
+    AnimationTypeRepeat  = 2,
+    AnimationTypeStatic  = 3,
+} AnimationType;
 
 typedef struct ColorRamp {
     uint32_t colors[MAX_COLORS];
     uint32_t count;
 } ColorRamp;
 
-typedef struct Animation {
-    int32_t startTime;
-    uint32_t duration;
-    uint32_t repeat;
-} Animation;
-
 typedef struct _PixelsContext {
-    ColorRamp colorRamp[LED_COUNT];
-    Animation animation[LED_COUNT];
-    uint32_t color[LED_COUNT];
+    rmt_channel_handle_t channel;
+    rmt_encoder_handle_t encoder;
+
+    uint8_t pixels[LED_COUNT * 3];
+
+    ColorRamp colorRamps[LED_COUNT];
+
+    uint32_t startTime[LED_COUNT];
+    uint32_t duration[LED_COUNT];
+    AnimationType type[LED_COUNT];
 } _PixelsContext;
 
 
@@ -38,9 +51,7 @@ typedef struct {
 #define EXAMPLE_LED_NUMBERS         1
 #define EXAMPLE_CHASE_SPEED_MS      10
 
-static uint8_t led_strip_pixels[EXAMPLE_LED_NUMBERS * 3];
-
-/*
+//static uint8_t led_strip_pixels[EXAMPLE_LED_NUMBERS * 3];
 
 static const char *TAG = "led_encoder";
 
@@ -52,8 +63,7 @@ typedef struct {
     rmt_symbol_word_t reset_code;
 } rmt_led_strip_encoder_t;
 
-static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
-{
+static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state) {
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
     rmt_encoder_handle_t bytes_encoder = led_encoder->bytes_encoder;
     rmt_encoder_handle_t copy_encoder = led_encoder->copy_encoder;
@@ -157,32 +167,104 @@ err:
     }
     return ret;
 }
-*/
 
-#define PIXELS_COUNT      (10)
 
-/*
-typedef struct _PixelsContext {
-    uint32_t pixels;
+PixelsContext pixels_init(uint32_t pin) {
 
-    uint32_t samples[PIXELS_COUNT];
-} _PixelsContext;
-*/
-
-PixelsContext pixels_init() {
+    printf("[init:led] starting...\n");
 
     _PixelsContext *context = malloc(sizeof(_PixelsContext));
     memset(context, 0, sizeof(_PixelsContext));
 
-    // // Setup the GPIO input pins
-    // for (uint32_t i = 0; i < 32; i++) {
-    //     if ((keys & (1 << i)) == 0) { continue; } 
-    //     gpio_reset_pin(i);
-    //     gpio_set_direction(i, GPIO_MODE_INPUT);
-    //     gpio_pullup_en(i);
-    // }
+    rmt_tx_channel_config_t tx_chan_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT, // select source clock
+        .gpio_num = pin,
+        .mem_block_symbols = 64, // increase the block size can make the LED less flickering
+        .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
+        .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
+    };
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, &(context->channel)));
+
+    led_strip_encoder_config_t encoder_config = {
+        .resolution = RMT_LED_STRIP_RESOLUTION_HZ,
+    };
+    ESP_ERROR_CHECK(rmt_new_led_strip_encoder(&encoder_config, &(context->encoder)));
+
+    ESP_ERROR_CHECK(rmt_enable(context->channel));
+
+    printf("[init:led] started!\n");
+
+    pixels_tick(context);
 
     return context;
+}
+
+uint8_t lerp(uint8_t a, uint8_t b, uint32_t top, uint32_t bottom) {
+    return ((top * a) / bottom) + (((bottom - top) * b) / bottom);
+}
+
+void pixels_tick(PixelsContext _context) {
+    _PixelsContext *context = (_PixelsContext*)_context;
+
+    uint32_t pixel = 0;
+    uint32_t offset = 0;
+
+    uint32_t color = 0, repeat = 0;
+    switch(context->type[pixel]) {
+        case AnimationTypeNone:
+            break;
+        case AnimationTypeStatic:
+            color = context->colorRamps[pixel].colors[0];
+            break;
+        case AnimationTypeRepeat:
+            repeat = 1;
+            // ...falls through
+        case AnimationTypeNormal: {
+            uint32_t dt = ticks() - context->startTime[pixel];
+            uint32_t duration = context->duration[pixel];
+            if (dt > duration) {
+                // Normal animations stop after duration
+                if (!repeat) {
+                    context->type[pixel] = AnimationTypeNone;
+                    break;
+                }
+
+                // Repeat animations restart offset from the overlap
+                dt = dt % duration;
+            }
+
+            uint32_t count = context->colorRamps[pixel].count;
+            uint32_t elapsed = dt * count;
+            uint32_t index = elapsed / duration;
+            uint32_t c0 = context->colorRamps[pixel].colors[index];
+            uint32_t c1 = context->colorRamps[pixel].colors[(index + 1) % count];
+
+            elapsed = duration - (elapsed - (index * duration));
+
+            uint32_t r = lerp(c0 >> 16, c1 >> 16, elapsed, duration);
+            uint32_t g = lerp(c0 >> 8, c1 >> 8, elapsed, duration);
+            uint32_t b = lerp(c0, c1, elapsed, duration);
+
+            color = RGB32(r, g, b);
+        }
+    }
+
+    context->pixels[offset + 0] = (color >> 8) & 0xff;
+    context->pixels[offset + 1] = (color >> 16) & 0xff;
+    context->pixels[offset + 2] = color & 0xff;
+
+    rmt_transmit_config_t tx_config = {
+        .loop_count = 0, // no transfer loop
+    };
+
+    //ESP_ERROR_CHECK(rmt_transmit(context->channel, context->encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));
+    ESP_ERROR_CHECK(rmt_transmit(context->channel, context->encoder, context->pixels, LED_COUNT * 3, &tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(context->channel, portMAX_DELAY));
+//    vTaskDelay(pdMS_TO_TICKS(EXAMPLE_CHASE_SPEED_MS));
+//    memset(led_strip_pixels, 0, sizeof(led_strip_pixels));
+//    ESP_ERROR_CHECK(rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));
+//    ESP_ERROR_CHECK(rmt_tx_wait_all_done(led_chan, portMAX_DELAY));
+//    vTaskDelay(pdMS_TO_TICKS(EXAMPLE_CHASE_SPEED_MS));    
 }
 
 void pixels_free(PixelsContext context) {
@@ -193,36 +275,25 @@ void pixels_setRGB(PixelsContext _context, uint32_t index, uint32_t rgb) {
     if (index >= LED_COUNT) { return; }
 
     _PixelsContext *context = (_PixelsContext*)_context;
-    context->animation[index].startTime = -1;
-    context->color[index] = rgb; 
+    context->colorRamps[index].colors[0] = rgb;
+    context->colorRamps[index].count = 1;
+    context->type[index] = AnimationTypeStatic;
 }
 
-/*
 void pixels_animateRGB(PixelsContext _context, uint32_t index, uint32_t* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
     if (index >= LED_COUNT) { return; }
 
-    _PixelContext *context = (_PixelsContext*)_context;
+    _PixelsContext *context = (_PixelsContext*)_context;
 
     // Set up the color ramp
     if (colorCount > MAX_COLORS) { colorCount = MAX_COLORS; }
-    if (colorCount) {
-        context->colorRamp.count = colorCount;
-        for (let i = 0; i < colorCount; i++) {
-            context->colorRamp[index].colors[i] = colorRamp[i];
-        }
 
-        if (colorCount > 1)
-            // Set up the animation
-            context->animations[index].startTime = millis();
-            context->animations[index].duration = duration;
-            context->animations[index].repeat = repeat;
-        }  
-
-    } else {
-        context->colorRamp[index].count = 1;
-        context->colorRamp[index].colors[0] = 0;
+    context->colorRamps[index].count = colorCount;
+    for (uint32_t i = 0; i < colorCount; i++) {
+        context->colorRamps[index].colors[i] = colorRamp[i];
     }
 
-    context->color = context->colorRamp[index].colors[0];
+    context->startTime[index] = ticks();
+    context->duration[index] = duration;
+    context->type[index] = repeat ? AnimationTypeRepeat: AnimationTypeNormal;
 }
-*/

@@ -13,6 +13,7 @@
 #include "system/keypad.h"
 #include "system/pixels.h"
 #include "system/scene.h"
+#include "system/utils.h"
 
 #include "system/output.h"
 
@@ -48,19 +49,21 @@
 #define PIN_BUTTON_3       (1 << 3)
 #define PIN_BUTTON_4       (1 << 2)
 
+#define PIN_PIXELS         (9)
+
 #endif
 
 
-#define FRAMERATE          (48)
-#define FRAMEDELAY         (1000 / (FRAMERATE + 2))
+//#define FRAMERATE          (48)
+//#define FRAMEDELAY         (1000 / (FRAMERATE + 2))
 
-static TaskHandle_t taskSystemHandle = NULL;
+static TaskHandle_t taskSysHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
 static uint32_t systemReady = 0;
 
-uint32_t millis() {
-    return esp_timer_get_time() / 1000;
-}
+//uint32_t millis() {
+//    return esp_timer_get_time() / 1000;
+//}
 
 void bounce(SceneContext scene, Node node, SceneActionStop stopAction) {
     Point point = scene_nodePosition(node);
@@ -79,14 +82,6 @@ void taskSystemFunc(void* pvParameter) {
 
     // The subset of keys to trigger a system reset
     uint32_t resetKeys = PIN_BUTTON_3 | PIN_BUTTON_1;
-
-    // {
-    //     int32_t i = -1;
-    //     if ((i >> 1) > 0) {
-    //         printf("Not arithmetic shift\n");
-    //         while(1);
-    //     }
-    // }
 
     /*
     {
@@ -115,8 +110,11 @@ void taskSystemFunc(void* pvParameter) {
     // I/O contexts
     DisplayContext display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
     KeypadContext keypad = keypad_init(keys);
-    //PixelsContext pixels = pixels_init();
-    //pixels_setRGB(pixels, 0, 0xffffffff);
+    PixelsContext pixels = pixels_init(PIN_PIXELS);
+    //pixels_setRGB(pixels, 0, RGB32(0, 0, 255));
+    //uint32_t colorRamp[] = { RGB32(255, 0, 0), RGB32(0, 255, 0), RGB32(0, 0, 255) };
+    uint32_t colorRamp[] = { RGB32(128, 0, 0), RGB32(0, 128, 0), RGB32(0, 0, 128) };
+    pixels_animateRGB(pixels, 0, colorRamp, 3, 1000, 1);
 
     // DEBUG; allow halting device on tight crash loops
     keypad_sample(keypad);
@@ -129,7 +127,8 @@ void taskSystemFunc(void* pvParameter) {
                 esp_restart();
                 while(1);
             }
-            vTaskDelay(16);
+            //vTaskDelay(16);
+            delay(16);
         }
     }
 
@@ -194,6 +193,7 @@ void taskSystemFunc(void* pvParameter) {
         uint32_t frameDone = display_renderScene(display, scene);
 
         if (frameDone) {
+            pixels_tick(pixels);
 
             // Latch the keypad values
             keypad_latch(keypad);
@@ -257,82 +257,80 @@ void taskSystemFunc(void* pvParameter) {
 }
 
 void taskAppFunc(void* pvParameter) {
-  while (1) {
-    printf("Hello from App\n");
-    vTaskDelay(10000);
-  }
-}
+    while (1) {
+        printf("Hello from App\n");
 
+        {
+            int32_t t0 = ticks();
 
-void setup() {
-  printf("Hello world!\n");
+            uint8_t checksum[KECCAK256_DIGEST_SIZE];
 
-  // Start the System Process (handles the display and keypad)
-  BaseType_t foo = xTaskCreatePinnedToCore(&taskSystemFunc, "sys", 8192 * 20, NULL, 1, &taskSystemHandle, 0);
-  printf("Initializing system task: %d %d\n", taskSystemHandle != NULL, foo);
-  assert(taskSystemHandle != NULL);
+            Keccak256Context ctx;
 
-  // Wait for the System Process to complete setup
-  while (!systemReady) { vTaskDelay(1); }
-  printf("Started system task\n");
+            for (uint32_t i = 0; i < 1000; i++) {
+                keccak256_init(&ctx);
+                keccak256_update(&ctx, checksum, KECCAK256_DIGEST_SIZE);
+                keccak256_final(&ctx, checksum);
+            }
 
-  // Start the App Process
-  xTaskCreatePinnedToCore(&taskAppFunc, "app", 8192 * 12, NULL, 2, &taskAppHandle, 0);
-  assert(taskSystemHandle != NULL);
-  printf("Initializing app task: %d\n", taskSystemHandle != NULL);
-}
+            int32_t dt = ticks() - t0;
 
-void loop() {
-    printf("[System] High-Water Marks: sys=%d, app=%d freq=%ld\n",
-         uxTaskGetStackHighWaterMark(taskSystemHandle),
-         uxTaskGetStackHighWaterMark(taskAppHandle),
-         portTICK_PERIOD_MS);
-
-    {
-        int32_t t0 = millis();
-
-        uint8_t checksum[KECCAK256_DIGEST_SIZE];
-
-        Keccak256Context ctx;
-
-        for (uint32_t i = 0; i < 1000; i++) {
-            keccak256_init(&ctx);
-            keccak256_update(&ctx, checksum, KECCAK256_DIGEST_SIZE);
-            keccak256_final(&ctx, checksum);
+            printf("Checksum: 0x");
+            for (int i = 0; i < KECCAK256_DIGEST_SIZE; i++) {
+                printf("%02x", checksum[i]);
+            }
+            printf(" (took %lds for 1000 hash ops)\n", dt);
         }
 
-        int32_t dt = millis() - t0;
+        {
+            uint8_t signature[SECP256K1_SIGNATURE_SIZE];
 
-        printf("Checksum: 0x");
-        for (int i = 0; i < KECCAK256_DIGEST_SIZE; i++) {
-            printf("%02x", checksum[i]);
+            int32_t t0 = ticks();
+
+            secp256k1_sign(signature, signature, signature);
+
+            int32_t dt = ticks() - t0;
+
+            printf("Sig: 0x");
+            for (int i = 0; i < SECP256K1_SIGNATURE_SIZE; i++) {
+                printf("%02x", signature[i]);
+            }
+            printf(" (took %lds for 1 sign op)\n", dt);
         }
-        printf(" (took %lds)\n", dt);
+
+        //vTaskDelay(10000 / portTICK_PERIOD_MS);
+        delay(10000);
     }
-
-    {
-        uint8_t signature[SECP256K1_SIGNATURE_SIZE];
-
-        int32_t t0 = millis();
-
-        secp256k1_sign(signature, signature, signature);
-
-        int32_t dt = millis() - t0;
-
-        printf("Sig: 0x");
-        for (int i = 0; i < SECP256K1_SIGNATURE_SIZE; i++) {
-            printf("%02x", signature[i]);
-        }
-        printf(" (took %lds)\n", dt);
-    }
-
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
 }
 
 void app_main() {
-    setup();
+    printf("Hello world!\n");
+
+    BaseType_t status;
+
+    // Start the System Process (handles the display and keypad)
+    status = xTaskCreatePinnedToCore(&taskSystemFunc, "sys", 8192 * 10, NULL, 1, &taskSysHandle, 0);
+    printf("[sys:init] start sys task: ok=%d status=%d\n", taskSysHandle != NULL, status);
+    assert(taskSysHandle != NULL);
+
+    // Wait for the System Process to complete setup
+    //while (!systemReady) { vTaskDelay(1); }
+    while (!systemReady) { delay(1); }
+    printf("[sys:init] sys ready\n");
+
+    // Start the App Process
+    status = xTaskCreatePinnedToCore(&taskAppFunc, "app", 8192 * 12, NULL, 2, &taskAppHandle, 0);
+    printf("[sys] init app task: ok=%d status=%d\n", taskAppHandle != NULL, status);
+    assert(taskAppHandle != NULL);
 
     while (1) {
-        loop();
+        printf("[sys] high-water: boot=%d sys=%d, app=%d freq=%ld\n",
+            uxTaskGetStackHighWaterMark(NULL),
+            uxTaskGetStackHighWaterMark(taskSysHandle),
+            uxTaskGetStackHighWaterMark(taskAppHandle),
+            portTICK_PERIOD_MS);
+
+        //vTaskDelay(60000 / portTICK_PERIOD_MS);
+        delay(60000);
     }
 }
