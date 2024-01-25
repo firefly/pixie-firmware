@@ -316,8 +316,8 @@ static void st7789_await_fragment(_DisplayContext *context) {
 // Initialize the display driver for the ST7789 on a SPI bus. This requires using
 // malloc because the memory acquired must be DMA compatible.
 DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinReset, DisplayRotation rotation) {
-    uint32_t t0 = ticks();
 
+    // Check the dimensions are safe (the #error checks this too)
     assert((DISPLAY_HEIGHT % DisplayFragmentHeight) == 0);
 
     _DisplayContext *context = malloc(sizeof(_DisplayContext));
@@ -333,8 +333,6 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     // GPIO pins
     context->pinDC = pinDC;
     context->pinReset = pinReset;
-
-    // printf("Display: pinDC=%d, pinReset=%d\n", context->pinDC, context->pinReset);
 
     // Current top Y coordinate to render
     context->currentY = 0;
@@ -378,7 +376,7 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
         //    hostDevice = VSPI_HOST;
         //    break
         default:
-            printf("unknown SPI host\n");
+            printf("[display] unknown SPI host\n");
             assert(0);
     }
 
@@ -394,7 +392,7 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
             .flags = 0
         };
 
-        // printf("SPI Bus: MOSI=%d, CLK=%d\n", busConfig.mosi_io_num, busConfig.sclk_io_num);
+        //printf("[disp] SPI Bus: MOSI=%d, CLK=%d\n", busConfig.mosi_io_num, busConfig.sclk_io_num);
 
         esp_err_t result = spi_bus_initialize(hostDevice, &busConfig, SPI_DMA_CH_AUTO);
         assert(result == ESP_OK);
@@ -423,8 +421,6 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     devConfig.spics_io_num = -1;
 
     //}
-
-    // printf("SPI Device: mode=%d, CS0=%d\n", devConfig.mode, devConfig.spics_io_num);
 
     // Create a low-speed SPI device for initialization
     esp_err_t result = spi_bus_add_device(hostDevice, &devConfig, &(context->spi));
@@ -456,8 +452,6 @@ DisplayContext display_init(DisplaySpiBus spiBus, uint8_t pinDC, uint8_t pinRese
     context->frame = 0;
     context->frameCount = 0;
     context->t0 = ticks();
-
-    printf("[DisplayDriver] Initialized: %ld ms\n", context->t0 - t0);
 
     return context;
 }

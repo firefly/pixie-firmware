@@ -28,7 +28,7 @@ KeypadContext keypad_init(uint32_t keys) {
 
     // Setup the GPIO input pins
     for (uint32_t i = 0; i < 32; i++) {
-        if ((keys & (1 << i)) == 0) { continue; } 
+        if ((keys & (1 << i)) == 0) { continue; }
         gpio_reset_pin(i);
         gpio_set_direction(i, GPIO_MODE_INPUT);
         gpio_pullup_en(i);
@@ -50,14 +50,14 @@ void keypad_sample(KeypadContext _context) {
 
 void keypad_latch(KeypadContext _context) {
     _KeypadContext *context = _context;
-    
+
     uint32_t samples = context->count;
     if (samples > KEYPAD_SAMPLE_COUNT) { samples = KEYPAD_SAMPLE_COUNT; }
 
     uint32_t latch = 0;
     for (uint32_t i = 0; i < 32; i++) {
         uint32_t mask = (1 << i);
-        if ((context->keys & mask) == 0) { continue; } 
+        if ((context->keys & mask) == 0) { continue; }
 
         uint32_t count = 0;
         for (uint32_t s = 0; s < samples; s++) {
@@ -70,7 +70,7 @@ void keypad_latch(KeypadContext _context) {
     context->count = 0;
 
     context->previousLatch = context->latch;
-    context->latch = latch;    
+    context->latch = latch;
 }
 
 uint32_t keypad_didChange(KeypadContext _context, uint32_t keys) {
