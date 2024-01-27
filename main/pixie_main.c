@@ -8,6 +8,7 @@
 #include "keccak256.h"
 #include "secp256k1.h"
 
+#include "system/color.h"
 #include "system/curves.h"
 #include "system/display.h"
 #include "system/keypad.h"
@@ -54,136 +55,143 @@
 #endif
 
 
-//#define FRAMERATE          (48)
-//#define FRAMEDELAY         (1000 / (FRAMERATE + 2))
+#define FRAMERATE          (60)
+#define FRAMEDELAY         (1000 / (FRAMERATE + 1))
 
-static TaskHandle_t taskSysHandle = NULL;
+// Idea: If current rate of last 60 frames if going to be early,
+// use delay_hi
+#define FRAME_DELAY_LO     (1000 / (FRAMERATE))
+#define FRAME_DELAY_HI     ((FRAME_DELAY_LO) + 1)
+
+static TaskHandle_t taskIoHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
-static uint32_t systemReady = 0;
-
-//uint32_t millis() {
-//    return esp_timer_get_time() / 1000;
-//}
 
 void bounce(SceneContext scene, Node node, SceneActionStop stopAction) {
     Point point = scene_nodePosition(node);
-    point.x = point.y = (point.x > 120) ? 10: 210;
 
-    // point.x = rand() % 220;
-    // point.y = rand() % 220;
-    AnimationId animationId = scene_nodeAnimatePosition(scene, node, point, 2000, CurveEaseOutElastic);
+    point.x = rand() % 220;
+    point.y = rand() % 220;
+    scene_boxSetColor(node, rand() & 0xffff);
 
-    scene_onAnimationCompletion(scene, animationId, bounce, NULL);
+    scene_nodeAnimatePosition(scene, node, point, 500 + rand() % 3500, CurveEaseOutElastic, bounce);
 }
 
-void taskSystemFunc(void* pvParameter) {
+void taskIoFunc(void* pvParameter) {
+    uint32_t *ready = (uint32_t*)pvParameter;
+
     // All keys
     uint32_t keys = PIN_BUTTON_1 | PIN_BUTTON_2 | PIN_BUTTON_3 | PIN_BUTTON_4;
 
     // The subset of keys to trigger a system reset
-    uint32_t resetKeys = PIN_BUTTON_3 | PIN_BUTTON_1;
-
-    /*
-    {
-        const uint32_t count = 0x10000;
-
-        uint32_t t0 = millis();
-        float total = 0;
-        for (uint32_t i = 0; i < count; i++) {
-            total += CurveEaseOutBounce((float)i / count);
-        }
-        
-        uint32_t dt = millis() - t0;
-        printf("Time Float: %f %d\n", total, dt);
-
-        t0 = millis(); total = 0;
-        for (uint32_t i = 0; i < count; i++) {
-            total += FixedCurveEaseOutBounce(count * i / count);
-        }
-        dt = millis() - t0;
-        printf("Time Fixed: %f %d\n", (float)total / count, dt);
-    }
-
-    while(1);
-    */
+    uint32_t resetKeys = PIN_BUTTON_1 | PIN_BUTTON_3;
 
     // I/O contexts
-    DisplayContext display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
-    KeypadContext keypad = keypad_init(keys);
-    PixelsContext pixels = pixels_init(PIN_PIXELS);
-    //pixels_setRGB(pixels, 0, RGB32(0, 0, 255));
-    //uint32_t colorRamp[] = { RGB32(255, 0, 0), RGB32(0, 255, 0), RGB32(0, 0, 255) };
-    uint32_t colorRamp[] = { RGB32(128, 0, 0), RGB32(0, 128, 0), RGB32(0, 0, 128) };
-    pixels_animateRGB(pixels, 0, colorRamp, 3, 1000, 1);
+    DisplayContext display;
+    KeypadContext keypad;
+    PixelsContext pixels;
 
-    // DEBUG; allow halting device on tight crash loops
-    keypad_sample(keypad);
-    keypad_latch(keypad);
-    if (keypad_isDown(keypad, PIN_BUTTON_3 | PIN_BUTTON_4)) {
-        while(1) {
-            keypad_sample(keypad);
-            keypad_latch(keypad);
-            if (keypad_isDown(keypad, resetKeys)) {
-                esp_restart();
-                while(1);
+    {
+        uint32_t t0 = ticks();
+        display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
+        printf("[io] init display: dt=%ldms\n", ticks() - t0);
+    }
+
+    {
+        uint32_t t0 = ticks();
+        keypad = keypad_init(keys);
+        printf("[io] init keypad: dt=%ldms\n", ticks() - t0);
+
+        // DEBUG; allow halting device on tight crash loops
+        keypad_sample(keypad);
+        keypad_latch(keypad);
+        if (keypad_isDown(keypad, PIN_BUTTON_3 | PIN_BUTTON_4)) {
+            printf("[io] keypad halted execution (hold 1 + 3 to restart)");
+            while(1) {
+                keypad_sample(keypad);
+                keypad_latch(keypad);
+                if (keypad_isDown(keypad, resetKeys)) {
+                    esp_restart();
+                    while(1);
+                }
+                delay(16);
             }
-            //vTaskDelay(16);
-            delay(16);
         }
     }
 
-    // Scene context
-
-    SceneContext scene = scene_init(2048);
-    Node root = scene_root(scene);
-    Node fill = scene_createFill(scene, 0x21ea); //RGB(0x23, 0x3b, 0x52));
-    scene_appendChild(root, fill);
-
-    Node img = scene_createImage(scene, moonbeam, sizeof(moonbeam));
-    scene_nodeSetPosition(img, (Point){ .x = 150, .y = 0 });
-    scene_appendChild(root, img);
-
-    Node img2 = scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
-    scene_appendChild(root, img2);
-
-    char fpsTextBuffer[10];
-    Node fpsText = scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
-    scene_appendChild(root, fpsText);
-    scene_nodeSetPosition(fpsText, (Point){ .x = 200, .y = 230 });
-
-    char fpsContent[4];
-    snprintf(fpsContent, 4, "%-2d", 0);
-    scene_textSetText(fpsText, fpsContent, 4);
-
-    const char* const phrase = "Hello y g World!";
-    Node text = scene_createText(scene, phrase, strlen(phrase));
-    scene_appendChild(root, text);
-    scene_nodeSetPosition(text, (Point){ .x = 100, .y = 120 });
-
-    AnimationId animation = AnimationIdNull;
-
-    //for (uint32_t i = 0; i < 300; i++) 
     {
-        Node box = scene_createBox(scene, (Size){ .width = 20, .height = 20 }, RGB(0, 0, 255));
-        scene_nodeSetPosition(box, (Point){ .x = 10, .y = 10 });
-        scene_appendChild(root, box);
-        bounce(scene, box, SceneActionStopFinal);
+        uint32_t t0 = ticks();
+        pixels = pixels_init(PIN_PIXELS);
+        printf("[io] init pixels: dt=%ldms\n", ticks() - t0);
+
+        //pixels_setRGB(pixels, 0, RGB32(0, 0, 255));
+        //uint32_t colorRamp[] = { RGB32(255, 0, 0), RGB32(0, 255, 0), RGB32(0, 0, 255) };
+        uint32_t colorRamp[] = { RGB24(85, 0, 0), RGB24(0, 85, 0), RGB24(0, 0, 85) };
+        pixels_animateRGB(pixels, 0, colorRamp, 3, 1000, 1);
     }
 
-    scene_sequence(scene);
+    char fpsTextBuffer[12];
+    memset(fpsTextBuffer, 0, sizeof(fpsTextBuffer));
 
+    // Scene context
+    SceneContext scene;
+    Node fpsText, text;
 
-    scene_dump(scene);
+    Node cursor;
+    int32_t cursorIndex = 0;
 
-    // The system is up; unblock the bootstrap process and start the app
-    systemReady = 1;
+    {
+        uint32_t t0 = ticks();
+
+        scene = scene_init(2048);
+        Node root = scene_root(scene);
+        Node fill = scene_createFill(scene, 0x21ea); //RGB(0x23, 0x3b, 0x52));
+        scene_appendChild(root, fill);
+
+        Node img = scene_createImage(scene, moonbeam, sizeof(moonbeam));
+        scene_nodeSetPosition(img, (Point){ .x = 150, .y = 0 });
+        scene_appendChild(root, img);
+
+        Node img2 = scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
+        scene_appendChild(root, img2);
+
+        const char* const phrase = "Hello y g World!";
+        text = scene_createText(scene, phrase, strlen(phrase));
+        scene_appendChild(root, text);
+        scene_nodeSetPosition(text, (Point){ .x = 100, .y = 120 });
+
+        for (uint32_t i = 0; i < 30; i++)
+        {
+            Node box = scene_createBox(scene, (Size){ .width = 5, .height = 5 }, RGB16(0, 0, 255));
+            scene_nodeSetPosition(box, (Point){ .x = 10, .y = 10 });
+            scene_appendChild(root, box);
+            bounce(scene, box, SceneActionStopFinal);
+        }
+
+        cursor = scene_createBox(scene, (Size){ .width = 220, .height = 32 }, RGB16(40, 40, 128));
+        scene_nodeSetPosition(cursor, (Point){ .x = 10, .y = 10 });
+        scene_appendChild(root, cursor);
+
+        fpsText = scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
+        scene_appendChild(root, fpsText);
+        scene_textSetTextInt(fpsText, 0);
+        scene_nodeSetPosition(fpsText, (Point){ .x = 200, .y = 230 });
+
+        scene_sequence(scene);
+
+        //scene_dump(scene);
+
+        printf("[io] init scene: dt=%ldms\n", ticks() - t0);
+    }
+
+    // The IO is up; unblock the bootstrap process and start the app
+    *ready = 1;
 
     // How long the reset sequence has been held down for
     uint32_t resetStart = 0;
 
     // The time of the last frame; used to enforce a constant framerate
     // The special value 0 causes an immediate update
-    TickType_t lastFrameTime = 0;
+    TickType_t lastFrameTime = xTaskGetTickCount();
 
     while (1) {
         // Sample the keypad
@@ -231,25 +239,36 @@ void taskSystemFunc(void* pvParameter) {
                 while(1) { }
             }
 
+            if (keypad_didChange(keypad, PIN_BUTTON_3 | PIN_BUTTON_4)) {
+                if (keypad_isDown(keypad, PIN_BUTTON_4)) {
+                    cursorIndex++;
+                } else if (keypad_isDown(keypad, PIN_BUTTON_3)) {
+                    cursorIndex--;
+                    if (cursorIndex < 0) { cursorIndex = 0; }
+                }
+
+                scene_stopAnimations(cursor, SceneActionStopCurrent);
+                scene_nodeAnimatePosition(scene, cursor, (Point){ .x = 10, .y = 10 + (cursorIndex * 32) }, 150, CurveEaseOutQuad, NULL);
+            }
+
             static uint32_t fpsTrigger = 0;
             if (fpsTrigger++ > 100) {
                 fpsTrigger = 0;
-                uint32_t fps = display_fps(display);
-                snprintf(fpsContent, 4, "%-2d", (uint8_t)fps);
-                scene_textSetText(fpsText, fpsContent, 4);
+                scene_textSetTextInt(fpsText, display_fps(display));
             }
 
-            //if (lastFrameTime == 0) { lastFrameTime = xTaskGetTickCount() - FRAMEDELAY; }
-            // int32_t skewLastFrameTime = lastFrameTime;
+//            if (lastFrameTime == 0) { lastFrameTime = xTaskGetTickCount(); }
+            //int32_t skewLastFrameTime = lastFrameTime;
 
-            //BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, FRAMEDELAY);
+            BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, FRAMEDELAY);
 
             // We are falling behind, catch up by dropping frames
-            //if (didDelay == pdFALSE) {
+            if (didDelay == pdFALSE) {
                 //uint32_t dt = xTaskGetTickCount() - skewLastFrameTime;
                 //printf("[System.Display] Framerate Skew Detected; dt=%d dropped=%d\n", dt, (dt + FRAMEDELAY - 1) / FRAMEDELAY);
-            //    lastFrameTime = 0;
-            //}
+                //printf("[init] skew detected");
+                lastFrameTime = xTaskGetTickCount();
+            }
         }
 
         fflush(stdout);
@@ -298,7 +317,6 @@ void taskAppFunc(void* pvParameter) {
             printf(" (took %lds for 1 sign op)\n", dt);
         }
 
-        //vTaskDelay(10000 / portTICK_PERIOD_MS);
         delay(10000);
     }
 }
@@ -306,31 +324,34 @@ void taskAppFunc(void* pvParameter) {
 void app_main() {
     printf("Hello world!\n");
 
-    BaseType_t status;
+    // Start the IO task (handles the display, LEDs and keypad)
+    {
+        // Pointer passed to taskIoFunc to notify us when IO is ready
+        uint32_t ready = 0;
 
-    // Start the System Process (handles the display and keypad)
-    status = xTaskCreatePinnedToCore(&taskSystemFunc, "sys", 8192 * 10, NULL, 1, &taskSysHandle, 0);
-    printf("[sys:init] start sys task: ok=%d status=%d\n", taskSysHandle != NULL, status);
-    assert(taskSysHandle != NULL);
+        BaseType_t status = xTaskCreatePinnedToCore(&taskIoFunc, "io", 8192, &ready, 2, &taskIoHandle, 0);
+        printf("[main] start IO task: status=%d\n", status);
+        assert(taskIoHandle != NULL);
 
-    // Wait for the System Process to complete setup
-    //while (!systemReady) { vTaskDelay(1); }
-    while (!systemReady) { delay(1); }
-    printf("[sys:init] sys ready\n");
+        // Wait for the IO task to complete setup
+        while (!ready) { delay(1); }
+        printf("[main] IO ready\n");
+    }
 
     // Start the App Process
-    status = xTaskCreatePinnedToCore(&taskAppFunc, "app", 8192 * 12, NULL, 2, &taskAppHandle, 0);
-    printf("[sys] init app task: ok=%d status=%d\n", taskAppHandle != NULL, status);
-    assert(taskAppHandle != NULL);
+    {
+        BaseType_t status = xTaskCreatePinnedToCore(&taskAppFunc, "app", 8192 * 8, NULL, 1, &taskAppHandle, 0);
+        printf("[main] init app task: status=%d\n", status);
+        assert(taskAppHandle != NULL);
+    }
 
     while (1) {
-        printf("[sys] high-water: boot=%d sys=%d, app=%d freq=%ld\n",
+        printf("[main] high-water: boot=%d io=%d, app=%d freq=%ld\n",
             uxTaskGetStackHighWaterMark(NULL),
-            uxTaskGetStackHighWaterMark(taskSysHandle),
+            uxTaskGetStackHighWaterMark(taskIoHandle),
             uxTaskGetStackHighWaterMark(taskAppHandle),
             portTICK_PERIOD_MS);
 
-        //vTaskDelay(60000 / portTICK_PERIOD_MS);
         delay(60000);
     }
 }
