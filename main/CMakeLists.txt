@@ -1,6 +1,7 @@
 idf_component_register(
   SRCS
     "pixie_main.c"
+    "system/color.c"
     "system/curves.c"
     "system/display.c"
     "system/keypad.c"
