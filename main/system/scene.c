@@ -14,7 +14,7 @@ typedef struct TextInfo {
     // 5 bits alpha, 1 bit isConst, 1 bit isAlloc, 1 bit flipPage
     uint8_t flags;
     uint8_t length;
-    rgb_t color;
+    rgb16_t color;
 } TextInfo;
 
 /**
@@ -28,6 +28,7 @@ typedef union Property {
     Point point;
     Size size;
     TextInfo text;
+    color_t color;
     SceneAnimationCompletion animationCompletion;
 } Property;
 
@@ -44,6 +45,7 @@ typedef void (*SequenceFunc)(struct _SceneContext *context, Point pos, struct _N
 typedef void (*RenderFunc)(Point pos, Property a, Property b,
               uint16_t *frameBuffer, int32_t y0, int32_t height);
 
+// Animates a SceneNode interpolating from p0 to p1 with the parameter t.
 typedef void (*AnimateFunc)(struct _Node *node, fixed_t t, Property p0, Property p1);
 
 
@@ -54,9 +56,14 @@ typedef union NodeFunc {
     CurveFunc curveFunc;
 } NodeFunc;
 
+typedef union AnimateProp {
+    struct _Node *node;
+    SceneAnimationCompletion onComplete;
+} AnimateProp;
 
 typedef struct _Node {
     struct _Node *nextNode;
+    AnimateProp animate;
     NodeFunc func;
     Point pos;
     Property a;
@@ -80,9 +87,6 @@ typedef struct _SceneContext {
     _Node *renderHead;
     _Node *renderTail;
 
-    //  The head and tail of the running animations (may be null)
-    _Node *animateHead;
-    _Node *animateTail;
 } _SceneContext;
 
 static const int16_t yHidden = 0x7fff;
@@ -90,8 +94,6 @@ static const int16_t yHidden = 0x7fff;
 const Point PointZero = { .x = 0, .y = 0 };
 const Point PointHidden = { .x = 0, .y = yHidden };
 const Size SizeZero = { .width = 0, .height = 0 };
-
-const AnimationId AnimationIdNull = 0;
 
 // Adjust for little endian architecture
 // uint16_t flipColor(rgb_t color) { return (color << 8) | (color >> 8); }
@@ -124,7 +126,7 @@ const AnimationId AnimationIdNull = 0;
  */
 
  /**
- *  Scene Node
+ *  SceneNode
  *
  *  Each SceneNode represents a node which is part of the scene
  *  graph, which when processed in top-to-bottom, left-to-right
@@ -138,70 +140,49 @@ const AnimationId AnimationIdNull = 0;
  *  reasons) not scedule any invisible (hidden or offscreen)
  *  nodes.
  *
- *  nextNode   - the nextSibling in the scene graph
- *  func       - the sequence function
- *  x, y       - co-ordinates in local space
- *  a:any      - dependent on the type of Scene Node
- *  b:any      - dependent on the type of Scene Node
+ *  nextNode     - the nextSibling in the scene graph
+ *  animate:Node - the head AnimateNode
+ *  func         - the sequence function
+ *  x, y         - co-ordinates in local space
+ *  a:any        - dependent on the type of Scene Node
+ *  b:any        - dependent on the type of Scene Node
  */
-
- /**
-  *  AnimationNode and PropertyNode
-  *
-  *  Each AnimateNode manages a running animation, from start time to end time. An animation requires
-  *  two node, an AnimateNode and a PropertyNode that stores the properties and curve
-  *
-  *  nextNode   - the related ProertyNode
-  *  func       - the property animation function
-  *  pos.x      - duration (in ms)
-  *  pos.y      - scheduled stop state (1 for keep current value, 2 for use final state)
-  *  a:void*    - target node to animate
-  *  b:i32      - end time
-  *
-  *  Property Node
-  *
-  *  nextNode   - the next AnimationNode
-  *  func       - the curve function
-  *  pos.x      - uniqueId
-  *  a:any      - The start property
-  *  b:any      - the end property
-  */
 
 /**
- *  Animation Complete Node
+ *  AnimationNode and PropertyNode
  *
- *  x, y       - animationId
- *  a:func()   - Callback function
- *  b:ptr      - target context
+ *  Each AnimateNode manages a running animation, from start time to end time.
+ *  An animation requires two node, an AnimateNode and a PropertyNode that
+ *  stores the properties and curve
+ *
+ *  nextNode            - the related ProertyNode
+ *  animate:Node        - the tail PropertyNode
+ *  func                - the property animation function
+ *  pos.y               - scheduled stop state (1 for keep current value, 2 for use final state)
+ *  a:i32               - duration
+ *  b:i32               - end time
+ *
+ *  PropertyNode
+ *
+ *  nextNode            - the next AnimationNode
+ *  animate:onComplete  - the SceneAnimationCompletion
+ *  func                - the curve function
+ *  a:any               - The start property value
+ *  b:any               - the end property value
  */
 
 
-static int32_t _getNodeIndex(_SceneContext *scene, _Node *node) {
+static int32_t _getNodeIndex(_SceneContext *scene, const _Node *node) {
     if (node == NULL) { return -1; }
     _Node *base = &scene->nodes[0];
     return (node - base);
 }
 
-static _Node* _getAnimationNode(_SceneContext *scene, AnimationId animationId) {
-    if (animationId == AnimationIdNull) { return NULL; }
-
-    // Get the AnimateNode
-    _Node *node = &scene->nodes[animationId >> 16];
-    if (node->nextNode == NULL) { return NULL; }
-
-    // Check the ID matches (otherwise it has been recycled)
-    if (node->nextNode->pos.x != (animationId & 0x7fff)) { return NULL; }
-
-    return node;
-}
-
-static AnimationId _getAnimationId(_SceneContext *scene, _Node *node) {
-    return (_getNodeIndex(scene, node) << 16) | node->nextNode->pos.x;
-}
-
 static void _freeNode(_SceneContext *scene, _Node *node) {
     node->nextNode = scene->nextFree;
     scene->nextFree = node;
+
+    // @TODO: Free animationHead
 }
 
 static void _appendChild(_Node *parent, _Node *child) {
@@ -231,6 +212,7 @@ static _Node* _addNode(_SceneContext *scene, Point pos) {
     free->pos = pos;
     free->b.ptr = NULL; // @TOOD: don't do this and copy in sequence to avoid unecessary copies
     free->nextNode = NULL;
+    free->animate.node = NULL;
 
     return free;
 }
@@ -242,8 +224,6 @@ static _Node* _addRenderNode(_SceneContext *scene, _Node *sceneNode, Point pos, 
     _Node *node = _addNode(scene, pos);
     if (node == NULL) { return NULL; }
 
-    // node->a = sceneNode->a; // Move these copies to sequencing?
-    // node->b = sceneNode->b;
     node->func.renderFunc = renderFunc;
 
     // Add the RenderNode to the render list
@@ -260,45 +240,94 @@ static _Node* _addRenderNode(_SceneContext *scene, _Node *sceneNode, Point pos, 
     return node;
 }
 
-static Node _addAnimateNode(_SceneContext *scene, _Node *node, uint32_t duration, AnimateFunc animateFunc, CurveFunc curveFunc) {
+static Node _addAnimationNode(_SceneContext *scene, _Node *node, uint32_t duration, AnimateFunc animateFunc, CurveFunc curveFunc, SceneAnimationCompletion onComplete) {
 
-    Point point = { .x = duration, .y = 0 };
-
-    _Node* animate = _addNode(scene, point);
+    _Node* animate = _addNode(scene, PointZero);
     if (animate == NULL) { return NULL; }
 
-    // We use this ID to make sure we are talking to the same 
-    static uint32_t nextId = 1;
-
-    point.x = nextId++;
-
-    _Node *prop = _addNode(scene, point);
+    _Node *prop = _addNode(scene, PointZero);
     if (prop == NULL) {
         _freeNode(scene, animate);
         return NULL;
     }
 
     animate->nextNode = prop;
-
     animate->func.animateFunc = animateFunc;
-    animate->a.ptr = node;
+    animate->a.i32 = duration;
     animate->b.i32 = scene->tick + duration;
 
+    if (onComplete) {
+        prop->animate.onComplete = onComplete;
+    }
     prop->func.curveFunc = curveFunc;
 
-    // Add the AnimateNode to the animation list
-    if (scene->animateHead == NULL) {
-        // First Animate Node; it is the head and the tail
-        scene->animateHead = animate;
-        scene->animateTail = prop;
+    prop->nextNode = node->animate.node;;
+    node->animate.node = animate;
 
-    } else {
-        // Add this to the end of the list and make it the end
-        scene->animateTail->nextNode = animate;
-        scene->animateTail = prop;
+    return animate;
+}
+
+static void _updateAnimations(_SceneContext *scene, _Node *node) {
+
+    _Node *animate = node->animate.node;
+
+    // No animations
+    if (animate == NULL) { return; }
+
+    int32_t now = xTaskGetTickCount();
+    scene->tick = now;
+
+    _Node *lastAnimate = NULL;
+
+    uint16_t stopType = SceneActionStopNormal;
+
+    while (animate) {
+        int32_t duration = animate->a.i32;
+        int32_t endTime = animate->b.i32;
+
+        _Node *prop = animate->nextNode;
+        _Node *nextAnimate = prop->nextNode;
+
+        if (stopType == SceneActionStopNormal) { stopType = animate->pos.y; }
+        if (stopType) { endTime = now; }
+
+        if (stopType != SceneActionStopCurrent) {
+            // Compute the curve-adjusted t
+            // fixed_t t = FM_1 - divfx((endTime - now) << 16, duration << 16);
+            fixed_t t = FM_1 - (tofx(endTime - now) / duration);
+            if (t >= FM_1) { t = FM_1; }
+
+            t = prop->func.curveFunc(t);
+
+            // Perform the animation
+            animate->func.animateFunc(node, t, prop->a, prop->b);
+        }
+
+        // Remove animation
+        if (now >= endTime) {
+
+            // Make the previous AnimateNode link to the next
+            if (lastAnimate) {
+                lastAnimate->nextNode->nextNode = nextAnimate;
+            } else {
+                node->animate.node = nextAnimate;
+            }
+
+            // Add the node back to the free nodes
+            prop->nextNode = scene->nextFree;
+            scene->nextFree = animate;
+
+            if (prop->animate.onComplete) {
+                prop->animate.onComplete(scene, node, stopType);
+            }
+
+        } else {
+            lastAnimate = animate;
+        }
+
+        // Advance to the next animation
+        animate = nextAnimate;
     }
-
-    return animate;  
 }
 
 uint32_t scene_sequence(SceneContext _scene) {
@@ -309,60 +338,6 @@ uint32_t scene_sequence(SceneContext _scene) {
         scene->renderTail->nextNode = scene->nextFree;
         scene->nextFree = scene->renderHead;
         scene->renderHead = scene->renderTail = NULL;
-    }
-
-    int32_t now = xTaskGetTickCount();
-    scene->tick = now;
-
-    // Run all the animations
-    if (scene->animateHead) {
-
-        _Node *lastAnimate = NULL;
-
-        _Node *animate = scene->animateHead;
-        while (animate) {
-
-            int32_t duration = animate->pos.x;
-            int32_t endTime = animate->b.i32;
-
-            _Node *prop = animate->nextNode;
-            _Node *nextAnimate = prop->nextNode;
-
-            uint16_t stopType = animate->pos.y;
-            if (stopType) { endTime = now; }
-
-            if (stopType != SceneActionStopCurrent) {
-                // Compute the curve-adjusted t
-                // fixed_t t = FM_1 - divfx((endTime - now) << 16, duration << 16);
-                fixed_t t = FM_1 - (tofx(endTime - now) / duration);
-                if (t >= FM_1) { t = FM_1; }
-                t = prop->func.curveFunc(t);
-
-                // Perform the animation
-                animate->func.animateFunc(animate->a.ptr, t, prop->a, prop->b);
-            }
-
-            // Remove animation
-            if (now >= endTime) {
-                // Make the previous AnimateNode link to the next
-                if (lastAnimate) {
-                    lastAnimate->nextNode->nextNode = nextAnimate;
-                } else {
-                    scene->animateHead = nextAnimate;
-                    if (nextAnimate == NULL) { scene->animateTail = NULL; }
-                }
-
-                // Add the node back to the free nodes
-                prop->nextNode = scene->nextFree;
-                scene->nextFree = animate;
-
-            } else {
-                lastAnimate = animate;
-            }
-
-            // Next AnimateNode
-            animate = nextAnimate;
-        }
     }
 
     // Sequence all the nodes
@@ -376,32 +351,25 @@ void scene_render(SceneContext _scene, uint8_t *fragment, int32_t y0, int32_t he
 
     _Node *node = scene->renderHead;
     while (node) {
-        // _Node *target = node->a.ptr;
         node->func.renderFunc(node->pos, node->a, node->b, (uint16_t*)fragment, y0, height);
         node = node->nextNode;
     }
 }
 
-uint32_t scene_isRunningAnimation(SceneContext _scene, AnimationId animationId) {
-    _SceneContext *scene = _scene;
+uint32_t scene_isRunningAnimation(Node _node) {
+    _Node *node = (_Node*)_node;
+    if (node == NULL) { return 0; }
 
-    _Node *node = _getAnimationNode(scene, animationId);
-    return (node == NULL) ? 0: 1;
+    return (node->animate.node == NULL) ? 0: 1;
 }
 
 
-void scene_stopAnimation(SceneContext _scene, AnimationId animationId, SceneActionStop stopType) {
-    _SceneContext *scene = _scene;
+void scene_stopAnimations(Node _node, SceneActionStop stopType) {
+    _Node *node = (_Node*)_node;
+    if (node == NULL || node->animate.node == NULL) { return; }
 
-    // Get the AnimateNode
-    _Node *node = _getAnimationNode(scene, animationId);
-    if (node == NULL) { return; }    
-
-    // Clear its ID, so it cannot be interacted with again
-    node->nextNode->pos.x = 0;
-
-    // Schedule it to be stopped on the next sequence
-    node->pos.y = stopType;
+    // Schedule the first animation to cancel it and the following animations
+    node->animate.node->pos.y = stopType;
 }
 
 
@@ -422,7 +390,7 @@ SceneContext scene_init(uint32_t nodeCount) {
         free(scene);
         return NULL;
     }
-    memset(nodes, 0, nodeCount * sizeof(_Node));  
+    memset(nodes, 0, nodeCount * sizeof(_Node));
     scene->nodes = nodes;
 
     // Create a linked list of all nodes linking to the next free
@@ -432,6 +400,8 @@ SceneContext scene_init(uint32_t nodeCount) {
 
     // The next free Node to acquire
     scene->nextFree = &nodes[0];
+
+    scene->tick = xTaskGetTickCount();
 
     // Set up the root node and render list
     scene->root = scene_createGroup(scene);
@@ -487,7 +457,7 @@ static void _nodeAnimatePosition(_Node *node, fixed_t t, Property p0, Property p
     node->pos = result;
 }
 
-AnimationId scene_nodeAnimatePosition(SceneContext _scene, Node _node, Point target, uint32_t duration, CurveFunc curve) {
+uint32_t scene_nodeAnimatePosition(SceneContext _scene, Node _node, Point target, uint32_t duration, CurveFunc curve, SceneAnimationCompletion onComplete) {
     _SceneContext *scene = _scene;
     _Node *node = _node;
 
@@ -498,18 +468,20 @@ AnimationId scene_nodeAnimatePosition(SceneContext _scene, Node _node, Point tar
         animateFunc = _nodeAnimatePositionHoriz;
     }
 
-    _Node *animate = _addAnimateNode(scene, node, duration, animateFunc, curve);
-    if (animate == NULL) { return AnimationIdNull; }
+    _Node *animate = _addAnimationNode(scene, node, duration, animateFunc, curve, onComplete);
+    if (animate == NULL) { return 0; }
+
     animate->nextNode->a.point = node->pos;
     animate->nextNode->b.point = target;
 
-    return _getAnimationId(scene, animate);
+    return 1;
 }
 
 /********************************************************
  * ANIMATION COMPLETE NODE
  ********************************************************/
 
+/*
 static void _animationCompletionSequence(_SceneContext *scene, Point worldPos, _Node* node) {
     uint32_t animationId = (node->pos.x << 16) | node->pos.y;
 
@@ -523,7 +495,8 @@ static void _animationCompletionSequence(_SceneContext *scene, Point worldPos, _
     // Call the callback
     node->a.animationCompletion(scene, node->b.ptr, 0);
 }
-
+*/
+/*
 uint32_t scene_onAnimationCompletion(SceneContext _scene, AnimationId animationId, SceneAnimationCompletion callback, void *context) {
     _SceneContext *scene = _scene;
 
@@ -545,7 +518,7 @@ uint32_t scene_onAnimationCompletion(SceneContext _scene, AnimationId animationI
 
     return 1;
 }
-
+*/
 
 /********************************************************
  * GROUP NODE
@@ -564,7 +537,6 @@ uint32_t scene_onAnimationCompletion(SceneContext _scene, AnimationId animationI
  */
 
 static void _groupSequence(_SceneContext *context, Point worldPos, _Node* node) {
-    // if (node->pos.y == yHidden) { return; }
 
     Point pos = node->pos;
     worldPos.x += pos.x;
@@ -591,6 +563,9 @@ static void _groupSequence(_SceneContext *context, Point worldPos, _Node* node) 
             _freeNode(context, child);
 
         } else {
+            // Update the animations
+            _updateAnimations(context, child);
+
             // Sequence the child
             child->func.sequenceFunc(context, worldPos, child);
             lastChild = child;
@@ -651,7 +626,7 @@ static void _fillSequence(_SceneContext *context, Point worldPos, _Node *node) {
     render->a = node->a;
 }
 
-Node scene_createFill(SceneContext _scene, rgb_t color) {
+Node scene_createFill(SceneContext _scene, rgb16_t color) {
     _SceneContext *scene = _scene;
 
     _Node* node = _addNode(scene, PointZero);
@@ -664,7 +639,7 @@ Node scene_createFill(SceneContext _scene, rgb_t color) {
     return node;
 }
 
-void scene_fillSetColor(Node _node, rgb_t color) {
+void scene_fillSetColor(Node _node, rgb16_t color) {
     _Node *node = _node;
     if (node == NULL) { return; }
 
@@ -672,7 +647,7 @@ void scene_fillSetColor(Node _node, rgb_t color) {
     node->a.u32 = ((c << 16) | c);
 }
 
-rgb_t scene_fillColor(Node _node) {
+rgb16_t scene_fillColor(Node _node) {
     _Node *node = _node;
     if (node == NULL) { return 0; }
 
@@ -702,7 +677,7 @@ static void _boxRender(Point pos, Property a, Property b, uint16_t *frameBuffer,
         sy = 0;
     }
     if (h <= 0) { return; }
-    
+
     // Compute the start x and width within the fragment
     int32_t sx = pos.x;
     int32_t w = a.size.width;
@@ -720,7 +695,12 @@ static void _boxRender(Point pos, Property a, Property b, uint16_t *frameBuffer,
     for (uint32_t y = 0; y < h; y++) {
         uint16_t *output = &frameBuffer[240 * (sy + y) + sx]; 
         for (uint32_t x = 0; x < w; x++) {
-        *output++ = color;
+            uint16_t current = *output;
+            current = (current << 8) | (current >> 8);
+            current = ((current & 0xf000) >> 1) | ((current & 0x07c0) >> 1) | ((current & 0x001e) >> 1);
+            current = (current << 8) | (current >> 8);
+            *output++ = current;
+            //*output++ = color;
         }
     }
 }
@@ -732,7 +712,7 @@ static void _boxSequence(_SceneContext *scene, Point worldPos,  _Node* node) {
     render->b = node->b;
 }
 
-Node scene_createBox(SceneContext _scene, Size size, rgb_t color) {
+Node scene_createBox(SceneContext _scene, Size size, rgb16_t color) {
     _SceneContext *scene = _scene;
 
     _Node* node = _addNode(scene, PointZero);
@@ -745,14 +725,14 @@ Node scene_createBox(SceneContext _scene, Size size, rgb_t color) {
     return node;
 }
 
-void scene_boxSetColor(Node _node, rgb_t color) {
+void scene_boxSetColor(Node _node, rgb16_t color) {
     _Node *node = _node;
     if (node == NULL) { return; }
 
     node->b.u32 = color;
 }
 
-rgb_t scene_boxColor(Node _node) {
+rgb16_t scene_boxColor(Node _node) {
     _Node *node = _node;
     if (node == NULL) { return 0; }
 
@@ -857,7 +837,7 @@ static Size _imageValidate(const uint16_t *data, uint32_t dataLength) {
 
 Node scene_createImage(SceneContext _scene, const uint16_t *data, uint32_t dataLength) {
     _SceneContext* scene = _scene;
-    
+
     Size size = _imageValidate(data, dataLength);
     if (size.width == 0 || size.height == 0) { return NULL; }
 
@@ -902,8 +882,6 @@ Size scene_imageSize(Node _node) {
 
 #define TextFlagModeConst      (0x04)
 #define TextFlagModeAlloc      (0x02)
-
-#define TextFlagFlipPage       (0x01)
 
 #define FONT_BASELINE     ((32 - 6) + 1)
 #define FONT_HEIGHT       (32)
@@ -1000,12 +978,11 @@ static  void _textRender(Point pos, Property a, Property b, uint16_t *frameBuffe
 
     // Get the actual text content; for non-constant text, select the correct page
     uint8_t *text = a.data;
-    if ((info.flags & TextFlagModeConst) == 0 && info.flags & TextFlagFlipPage) {
-        text = &text[length]; 
-    }
+//    if ((info.flags & TextFlagModeConst) == 0) { text = &text[length]; }
 
     // Recompute the length and width for the *actual* text
     length = strnlen((char*)text, length);
+    if (length == 0) { return; }
     textWidth = ((FONT_WIDTH + 1) * length) - 1;
 
     // The text length is to the left of the screen
@@ -1126,11 +1103,19 @@ static  void _textRender(Point pos, Property a, Property b, uint16_t *frameBuffe
     }
 }
 
-static void _textSequence(_SceneContext *scene, Point worldPos,  _Node* node) {
+static void _textSequence(_SceneContext *scene, Point worldPos, _Node* node) {
     _Node *render = _addRenderNode(scene, node, worldPos, _textRender);
     if (render == NULL) { return; }
     render->a = node->a;
     render->b = node->b;
+
+    TextInfo *info = &node->b.text;
+    if (!(info->flags & TextFlagModeConst)) {
+        char *text = (char*)(node->a.data);
+
+        // Copy the set value to the render value
+        memcpy(&text[0], &text[info->length], info->length);
+    }
 }
 
 Node scene_createText(SceneContext _scene, const char* data, uint32_t dataLength) {
@@ -1150,7 +1135,7 @@ Node scene_createText(SceneContext _scene, const char* data, uint32_t dataLength
 
 Node scene_createTextFlip(SceneContext _scene, char* data, uint32_t dataLength) {
     _SceneContext* scene = _scene;
-    
+
     _Node* node = _addNode(scene, PointZero);
     if (node == NULL) { return NULL; }
 
@@ -1185,26 +1170,30 @@ void scene_textSetText(Node _node, const char* const text, uint32_t _length) {
     _Node *node = _node;
     if (node == NULL) { return; }
 
-    uint32_t flags = node->b.text.flags;
+    TextInfo *info = &node->b.text;
 
     // Cannot modify a const memory address
-    if (flags & TextFlagModeConst) { return; }
+    if (info->flags & TextFlagModeConst) { return; }
 
     uint32_t length = node->b.text.length;
-    uint32_t offset = ((flags ^ 0x01) & TextFlagFlipPage) * length; 
     if (_length < length) { length = _length; }
 
-    strncpy((char*)(&node->a.data[offset]), text, length);
-    node->b.text.flags ^= TextFlagFlipPage;
+    strncpy((char*)(&node->a.data[info->length]), text, length);
 }
 
-void scene_textSetColor(Node _node, rgb_t color) {
+void scene_textSetTextInt(Node node, int32_t value) {
+    static char buffer[12];
+    size_t length = snprintf(buffer, sizeof(buffer), "%ld", value);
+    scene_textSetText(node, buffer, length);
+}
+
+void scene_textSetColor(Node _node, rgb16_t color) {
     _Node *node = _node;
     if (node == NULL) { return; }
 
     node->a.text.color = color;
 }
-
+/*
 void scene_textSetColorAlpha(Node _node, rgba_t color) {
     _Node *node = _node;
     if (node == NULL) { return; }
@@ -1212,7 +1201,7 @@ void scene_textSetColorAlpha(Node _node, rgba_t color) {
     node->a.text.color = color & 0xffff;
     node->a.text.flags |= (color >> 16) & 0xf8;
 }
-
+*/
 
 /********************************************************
  * DEBUG
@@ -1246,12 +1235,6 @@ static void dumpNode(_SceneContext *scene, _Node *node, uint32_t indent) {
     } else if (node->func.sequenceFunc == _freeSequence) {
         printf("%s    - Pending Free Node %ld\n", padding, _getNodeIndex(scene, node));
 
-    } else if (node->func.sequenceFunc == _animationCompletionSequence) {
-        uint32_t animationId = (node->pos.x << 16) | node->pos.y;
-
-        printf("%s    - Animation Completion Callback %ld (animationId=%ld, target=%ld)\n", padding,
-            _getNodeIndex(scene, node), animationId, _getNodeIndex(scene, node->b.ptr));
-
     } else if (node->func.renderFunc == _boxRender) {
         printf("%s    - Box Render Node %ld (x=%d, y=%d, width=%d, height=%d, color=0x%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, node->a.size.width, node->a.size.height,
@@ -1266,16 +1249,21 @@ static void dumpNode(_SceneContext *scene, _Node *node, uint32_t indent) {
         printf("%s    - Text Render Node %ld (x=%d, y=%d, text=@TODO, flags=%x, length=%d, color=%04x)\n", padding,
             _getNodeIndex(scene, node), node->pos.x, node->pos.y, info.flags, info.length, info.color);
 
-    } else if (node->func.animateFunc == _nodeAnimatePosition) {
-        uint32_t duration = node->pos.x;
-        int32_t end = node->b.i32;
-        float t = 1.0f - ((float)(end - scene->tick) / (float)duration);
-        if (t >= 1.0f) { t = 1.0f; }
-        printf("%s    - Position Animate Node %ld (start=%ld, end=%ld, t=%f, duration=%ld, target=%ld)\n", padding,
-            _getNodeIndex(scene, node), end - duration, end, t, duration, _getNodeIndex(scene, node->a.ptr));
-
     } else {
         printf("%s    - Unknown Node %ld (x=%d, y=%d)\n", padding, _getNodeIndex(scene, node), node->pos.x, node->pos.y);  
+    }
+
+    if (node->animate.node) {
+        _Node *animate = node->animate.node;
+        while (animate) {
+            int32_t duration = animate->a.i32;
+            int32_t end = animate->b.i32;
+            float t = 1.0f - ((float)(end - scene->tick) / (float)duration);
+            if (t >= 1.0f) { t = 1.0f; }
+            printf("%s      - Animate Node %ld (start=%ld, end=%ld, t=%f, duration=%ld)\n", padding,
+                _getNodeIndex(scene, animate), end - duration, end, t, duration);
+            animate = animate->nextNode->nextNode;
+        }
     }
 
     if (node->nextNode != NULL) { dumpNode(scene, node->nextNode, indent); }
@@ -1294,10 +1282,4 @@ void scene_dump(SceneContext _scene) {
     if (scene->renderHead) {
         dumpNode(scene, scene->renderHead, 0);
     }
-
-    printf("  - Animations:\n");
-    if (scene->animateHead) {
-        dumpNode(scene, scene->animateHead, 0);
-    }
-
 }
