@@ -7,7 +7,9 @@ extern "C" {
 
 #include <stdint.h>
 
-#include "scene.h"
+#include "./scene.h"
+
+#include "./color.h"
 
 #define DEBUG_SHOW_FPS  (1)
 
@@ -19,9 +21,6 @@ extern "C" {
 #define _DECODE_SPI_BUS_SCLK(bus) (((bus) >> 14) & 0x1f)
 #define _DECODE_SPI_BUS_MISO(bus) (((bus) >> 7) & 0x1f)
 #define _DECODE_SPI_BUS_MOSI(bus) (((bus) >> 0) & 0x1f)
-
-#define RGB(r,g,b)     ((((r) & 0xf8) << 8) | (((g) & 0xfc) << 3) | (((b) & 0xf8) >> 3))
-#define RGBA(r,g,b,a)  (RGB((r),(g),(b)) | ((0xff - ((a) & 0xff)) << 16))
 
 // uint32_t HSV(uint32_t hue, uint32_t saturation, uint32_t value) {
 
