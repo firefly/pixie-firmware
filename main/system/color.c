@@ -67,7 +67,7 @@ static color_t _fromHSV(color_t color) {
     v = (v * 255) / B6;
 
     // Notes:
-    //  - v, t, p, q MUST all be [0, 255] for the RGB mapping
+    //  - v, p, and q MUST all be [0, 255] for the RGB mapping
     //  - s is [0, 63]
     //  - rem is [0, 59]
     //  - v, s and rem represent values [0, 1] multiplied by their multiplier
@@ -77,44 +77,34 @@ static color_t _fromHSV(color_t color) {
     // Mask out the two HSV-specific bits
     color_t result = color & 0x3f000000;
 
+    int32_t p = (v * (63 - s)) / 63, q;
+
     // Map the RGB value based on the region
     switch (region) {
-        case 0: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
-            result |= (v << 16) | (t << 8) | p;
+        case 0:
+            q = (v * ((63 * 59) - (s * (59 - rem)))) / (63 * 59);
+            result |= (v << 16) | (q << 8) | p;
             break;
-        }
-        case 1: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
+        case 1:
+            q = (v * ((63 * 59) - (s * rem))) / (63 * 59);
             result |= (q << 16) | (v << 8) | p;
             break;
-        }
-        case 2: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
-            result |= (p << 16) | (v << 8) | t;
+        case 2:
+            q = (v * ((63 * 59) - (s * (59 - rem)))) / (63 * 59);
+            result |= (p << 16) | (v << 8) | q;
             break;
-        }
-        case 3: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
+        case 3:
+            q = (v * ((63 * 59) - (s * rem))) / (63 * 59);
             result |= (p << 16) | (q << 8) | v;
             break;
-        }
-        case 4: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
-            result |= (t << 16) | (p << 8) | v;
+        case 4:
+            q = (v * ((63 * 59) - (s * (59 - rem)))) / (63 * 59);
+            result |= (q << 16) | (p << 8) | v;
             break;
-        }
-        case 5: {
-            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
+        case 5:
+            q = (v * ((63 * 59) - (s * rem))) / (63 * 59);
             result |= (v << 16) | (p << 8) | q;
             break;
-        }
     }
 
     return result;
