@@ -1,4 +1,4 @@
-#include "./bip32.h"
+#include "crypto/bip32.h"
 
 int32_t bip32_initWithPhrase(const char* phrase, const char *password, Bip32Node *node) {
     return 0;

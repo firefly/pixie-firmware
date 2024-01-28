@@ -34,7 +34,7 @@
 
 #include <string.h>
 
-#include "./sha2.h"
+#include "crypto/sha2.h"
 
 #define LITTLE_ENDIAN    1
 

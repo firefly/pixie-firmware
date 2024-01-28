@@ -43,9 +43,9 @@
 
 #include <stdint.h>
 
-#include "./secp256k1.h"
+#include "crypto/secp256k1.h"
 
-#include "./sha2.h"
+#include "crypto/sha2.h"
 // #include "uECC.h"
 
 struct uECC_Curve_t;
@@ -1592,7 +1592,7 @@ static int uECC_verify(const uint8_t *public_key,
 // <RicMoo>
 // Public Interface
 
-#include "sha2.h"
+//#include "crypto/sha2.h"
 
 typedef struct HashContext {
     uECC_HashContext uECC;
@@ -1616,7 +1616,17 @@ void finish_SHA256(const uECC_HashContext *base, uint8_t *hash_result) {
 
 int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature) {
     uint8_t tmp[32 + 32 + 64];
-    HashContext ctx = { {&init_SHA256, &update_SHA256, &finish_SHA256, 64, 32, tmp} };
+
+    HashContext ctx = {
+        .uECC = {
+            .init_hash = &init_SHA256,
+            .update_hash = &update_SHA256,
+            .finish_hash = &finish_SHA256,
+            .block_size = 64,
+            .result_size = 32,
+            .tmp = tmp
+        },
+    };
 
     return uECC_sign_deterministic(privateKey, digest, 32, &ctx.uECC, signature, uECC_secp256k1());
 }
