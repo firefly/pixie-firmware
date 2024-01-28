@@ -63,6 +63,7 @@ static color_t _fromHSV(color_t color) {
     int32_t region = h / 60;
     int32_t rem = (h - (region * 60));
 
+    // Normalize value to a byte
     v = (v * 255) / B6;
 
     // Notes:
@@ -73,34 +74,47 @@ static color_t _fromHSV(color_t color) {
     //    - so (63 - s) is the equivlent of (1.0 - s_)
     //    - (v * s) / (255 * 63) is equivalent of (v_ * s_)
 
-    // Compute the 
-    int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
-    int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
-    int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
-
     // Mask out the two HSV-specific bits
     color_t result = color & 0x3f000000;
 
     // Map the RGB value based on the region
     switch (region) {
-        case 0:
+        case 0: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
             result |= (v << 16) | (t << 8) | p;
             break;
-        case 1:
+        }
+        case 1: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
             result |= (q << 16) | (v << 8) | p;
             break;
-        case 2:
+        }
+        case 2: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
             result |= (p << 16) | (v << 8) | t;
             break;
-        case 3:
+        }
+        case 3: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
             result |= (p << 16) | (q << 8) | v;
             break;
-        case 4:
+        }
+        case 4: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t t = ((v * ((63 * 59) - (s * (59 - rem)))) * 255) / (255 * 63 * 59);
             result |= (t << 16) | (p << 8) | v;
             break;
-        case 5:
+        }
+        case 5: {
+            int32_t p = ((v * (63 - s)) * 255) / (255 * 63);
+            int32_t q = ((v * ((63 * 59) - (s * rem))) * 255) / (255 * 63 * 59);
             result |= (v << 16) | (p << 8) | q;
             break;
+        }
     }
 
     return result;
@@ -134,16 +148,4 @@ int main() {
         }
     }
 }
-*/
-/* Works, but is not efficient
-
-    int32_t region = h / 60;                             // [0, 5]
-    int32_t rem = (h - (region * 60)) * 255 / 59;       // [0, 255]
-
-    s = (s * 255) / B6;
-    v = (v * 255) / B6;
-
-    uint8_t p = ((v * (0xff - s)) * 255) / 0xfe01;
-    uint8_t q = ((v * (0xff - (((s * rem) * 255) / 0xfe01))) * 255) / 0xfe01;
-    uint8_t t = ((v * (0xff - (((s * (0xff - rem)) * 255) / 0xfe01))) * 255) / 0xfe01;
 */
