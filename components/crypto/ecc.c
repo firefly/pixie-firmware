@@ -43,7 +43,7 @@
 
 #include <stdint.h>
 
-#include "crypto/secp256k1.h"
+#include "crypto/ecc.h"
 
 #include "crypto/sha2.h"
 // #include "uECC.h"
@@ -657,12 +657,119 @@ static void uECC_vli_modInv(uECC_word_t *result,
 
 // #include "curve-specific.inc"
 
-#define num_bytes_secp256k1 32
+#define num_bytes_secp256r1 32
+#define num_words_secp256r1 8
 
+#define num_bytes_secp256k1 32
 #define num_words_secp256k1 8
 
 #define BYTES_TO_WORDS_8(a, b, c, d, e, f, g, h) 0x##d##c##b##a, 0x##h##g##f##e
 #define BYTES_TO_WORDS_4(a, b, c, d) 0x##d##c##b##a
+
+
+static void double_jacobian_default(uECC_word_t * X1,
+                                    uECC_word_t * Y1,
+                                    uECC_word_t * Z1,
+                                    uECC_Curve curve) {
+    /* t1 = X, t2 = Y, t3 = Z */
+    uECC_word_t t4[uECC_MAX_WORDS];
+    uECC_word_t t5[uECC_MAX_WORDS];
+    wordcount_t num_words = curve->num_words;
+
+    if (uECC_vli_isZero(Z1, num_words)) {
+        return;
+    }
+
+    uECC_vli_modSquare_fast(t4, Y1, curve);   /* t4 = y1^2 */
+    uECC_vli_modMult_fast(t5, X1, t4, curve); /* t5 = x1*y1^2 = A */
+    uECC_vli_modSquare_fast(t4, t4, curve);   /* t4 = y1^4 */
+    uECC_vli_modMult_fast(Y1, Y1, Z1, curve); /* t2 = y1*z1 = z3 */
+    uECC_vli_modSquare_fast(Z1, Z1, curve);   /* t3 = z1^2 */
+
+    uECC_vli_modAdd(X1, X1, Z1, curve->p, num_words); /* t1 = x1 + z1^2 */
+    uECC_vli_modAdd(Z1, Z1, Z1, curve->p, num_words); /* t3 = 2*z1^2 */
+    uECC_vli_modSub(Z1, X1, Z1, curve->p, num_words); /* t3 = x1 - z1^2 */
+    uECC_vli_modMult_fast(X1, X1, Z1, curve);                /* t1 = x1^2 - z1^4 */
+
+    uECC_vli_modAdd(Z1, X1, X1, curve->p, num_words); /* t3 = 2*(x1^2 - z1^4) */
+    uECC_vli_modAdd(X1, X1, Z1, curve->p, num_words); /* t1 = 3*(x1^2 - z1^4) */
+    if (uECC_vli_testBit(X1, 0)) {
+        uECC_word_t l_carry = uECC_vli_add(X1, X1, curve->p, num_words);
+        uECC_vli_rshift1(X1, num_words);
+        X1[num_words - 1] |= l_carry << (uECC_WORD_BITS - 1);
+    } else {
+        uECC_vli_rshift1(X1, num_words);
+    }
+    /* t1 = 3/2*(x1^2 - z1^4) = B */
+
+    uECC_vli_modSquare_fast(Z1, X1, curve);                  /* t3 = B^2 */
+    uECC_vli_modSub(Z1, Z1, t5, curve->p, num_words); /* t3 = B^2 - A */
+    uECC_vli_modSub(Z1, Z1, t5, curve->p, num_words); /* t3 = B^2 - 2A = x3 */
+    uECC_vli_modSub(t5, t5, Z1, curve->p, num_words); /* t5 = A - x3 */
+    uECC_vli_modMult_fast(X1, X1, t5, curve);                /* t1 = B * (A - x3) */
+    uECC_vli_modSub(t4, X1, t4, curve->p, num_words); /* t4 = B * (A - x3) - y1^4 = y3 */
+
+    uECC_vli_set(X1, Z1, num_words);
+    uECC_vli_set(Z1, Y1, num_words);
+    uECC_vli_set(Y1, t4, num_words);
+}
+
+/* Double in place */
+static void double_jacobian_secp256k1(uECC_word_t * X1,
+                                      uECC_word_t * Y1,
+                                      uECC_word_t * Z1,
+                                      uECC_Curve curve) {
+    /* t1 = X, t2 = Y, t3 = Z */
+    uECC_word_t t4[num_words_secp256k1];
+    uECC_word_t t5[num_words_secp256k1];
+
+    if (uECC_vli_isZero(Z1, num_words_secp256k1)) {
+        return;
+    }
+
+    uECC_vli_modSquare_fast(t5, Y1, curve);   /* t5 = y1^2 */
+    uECC_vli_modMult_fast(t4, X1, t5, curve); /* t4 = x1*y1^2 = A */
+    uECC_vli_modSquare_fast(X1, X1, curve);   /* t1 = x1^2 */
+    uECC_vli_modSquare_fast(t5, t5, curve);   /* t5 = y1^4 */
+    uECC_vli_modMult_fast(Z1, Y1, Z1, curve); /* t3 = y1*z1 = z3 */
+
+    uECC_vli_modAdd(Y1, X1, X1, curve->p, num_words_secp256k1); /* t2 = 2*x1^2 */
+    uECC_vli_modAdd(Y1, Y1, X1, curve->p, num_words_secp256k1); /* t2 = 3*x1^2 */
+    if (uECC_vli_testBit(Y1, 0)) {
+        uECC_word_t carry = uECC_vli_add(Y1, Y1, curve->p, num_words_secp256k1);
+        uECC_vli_rshift1(Y1, num_words_secp256k1);
+        Y1[num_words_secp256k1 - 1] |= carry << (uECC_WORD_BITS - 1);
+    } else {
+        uECC_vli_rshift1(Y1, num_words_secp256k1);
+    }
+    /* t2 = 3/2*(x1^2) = B */
+
+    uECC_vli_modSquare_fast(X1, Y1, curve);                     /* t1 = B^2 */
+    uECC_vli_modSub(X1, X1, t4, curve->p, num_words_secp256k1); /* t1 = B^2 - A */
+    uECC_vli_modSub(X1, X1, t4, curve->p, num_words_secp256k1); /* t1 = B^2 - 2A = x3 */
+
+     uECC_vli_modSub(t4, t4, X1, curve->p, num_words_secp256k1); /* t4 = A - x3 */
+    uECC_vli_modMult_fast(Y1, Y1, t4, curve);                   /* t2 = B * (A - x3) */
+    uECC_vli_modSub(Y1, Y1, t5, curve->p, num_words_secp256k1); /* t2 = B * (A - x3) - y1^4 = y3 */
+}
+
+/* Computes result = x^3 + ax + b. result must not overlap x. */
+static void x_side_default(uECC_word_t *result, const uECC_word_t *x, uECC_Curve curve) {
+    uECC_word_t _3[uECC_MAX_WORDS] = {3}; /* -a = 3 */
+    wordcount_t num_words = curve->num_words;
+
+    uECC_vli_modSquare_fast(result, x, curve);                      /* r = x^2 */
+    uECC_vli_modSub(result, result, _3, curve->p, num_words);       /* r = x^2 - 3 */
+    uECC_vli_modMult_fast(result, result, x, curve);                /* r = x^3 - 3x */
+    uECC_vli_modAdd(result, result, curve->b, curve->p, num_words); /* r = x^3 - 3x + b */
+}
+
+/* Computes result = x^3 + b. result must not overlap x. */
+static void x_side_secp256k1(uECC_word_t *result, const uECC_word_t *x, uECC_Curve curve) {
+    uECC_vli_modSquare_fast(result, x, curve);                                /* r = x^2 */
+    uECC_vli_modMult_fast(result, result, x, curve);                          /* r = x^3 */
+    uECC_vli_modAdd(result, result, curve->b, curve->p, num_words_secp256k1); /* r = x^3 + b */
+}
 
 /* Compute a = sqrt(a) (mod curve_p). */
 static void mod_sqrt_default(uECC_word_t *a, uECC_Curve curve) {
@@ -670,7 +777,7 @@ static void mod_sqrt_default(uECC_word_t *a, uECC_Curve curve) {
     uECC_word_t p1[uECC_MAX_WORDS] = {1};
     uECC_word_t l_result[uECC_MAX_WORDS] = {1};
     wordcount_t num_words = curve->num_words;
-    
+
     /* When curve->p == 3 (mod 4), we can compute
        sqrt(a) = a^((curve->p + 1) / 4) (mod curve->p). */
     uECC_vli_add(p1, curve->p, p1, num_words); /* p1 = curve_p + 1 */
@@ -683,13 +790,57 @@ static void mod_sqrt_default(uECC_word_t *a, uECC_Curve curve) {
     uECC_vli_set(a, l_result, num_words);
 }
 
+static void vli_mmod_fast_secp256r1(uint32_t*, uint32_t*);
+static void vli_mmod_fast_secp256k1(uECC_word_t*, uECC_word_t*);
 
-static void double_jacobian_secp256k1(uECC_word_t * X1,
-                                      uECC_word_t * Y1,
-                                      uECC_word_t * Z1,
-                                      uECC_Curve curve);
-static void x_side_secp256k1(uECC_word_t *result, const uECC_word_t *x, uECC_Curve curve);
-static void vli_mmod_fast_secp256k1(uECC_word_t *result, uECC_word_t *product);
+static void omega_mult_secp256k1(uint32_t * result, const uint32_t * right) {
+    /* Multiply by (2^9 + 2^8 + 2^7 + 2^6 + 2^4 + 1). */
+    uint32_t carry = 0;
+    wordcount_t k;
+
+    for (k = 0; k < num_words_secp256k1; ++k) {
+        uint64_t p = (uint64_t)0x3D1 * right[k] + carry;
+        result[k] = (uint32_t) p;
+        carry = p >> 32;
+    }
+    result[num_words_secp256k1] = carry;
+    /* add the 2^32 multiple */
+    result[1 + num_words_secp256k1] =
+        uECC_vli_add(result + 1, result + 1, right, num_words_secp256k1);
+}
+
+
+
+static const struct uECC_Curve_t curve_secp256r1 = {
+    num_words_secp256r1,
+    num_bytes_secp256r1,
+    256, /* num_n_bits */
+    { BYTES_TO_WORDS_8(FF, FF, FF, FF, FF, FF, FF, FF),
+        BYTES_TO_WORDS_8(FF, FF, FF, FF, 00, 00, 00, 00),
+        BYTES_TO_WORDS_8(00, 00, 00, 00, 00, 00, 00, 00),
+        BYTES_TO_WORDS_8(01, 00, 00, 00, FF, FF, FF, FF) },
+    { BYTES_TO_WORDS_8(51, 25, 63, FC, C2, CA, B9, F3),
+        BYTES_TO_WORDS_8(84, 9E, 17, A7, AD, FA, E6, BC),
+        BYTES_TO_WORDS_8(FF, FF, FF, FF, FF, FF, FF, FF),
+        BYTES_TO_WORDS_8(00, 00, 00, 00, FF, FF, FF, FF) },
+    { BYTES_TO_WORDS_8(96, C2, 98, D8, 45, 39, A1, F4),
+        BYTES_TO_WORDS_8(A0, 33, EB, 2D, 81, 7D, 03, 77),
+        BYTES_TO_WORDS_8(F2, 40, A4, 63, E5, E6, BC, F8),
+        BYTES_TO_WORDS_8(47, 42, 2C, E1, F2, D1, 17, 6B),
+
+        BYTES_TO_WORDS_8(F5, 51, BF, 37, 68, 40, B6, CB),
+        BYTES_TO_WORDS_8(CE, 5E, 31, 6B, 57, 33, CE, 2B),
+        BYTES_TO_WORDS_8(16, 9E, 0F, 7C, 4A, EB, E7, 8E),
+        BYTES_TO_WORDS_8(9B, 7F, 1A, FE, E2, 42, E3, 4F) },
+    { BYTES_TO_WORDS_8(4B, 60, D2, 27, 3E, 3C, CE, 3B),
+        BYTES_TO_WORDS_8(F6, B0, 53, CC, B0, 06, 1D, 65),
+        BYTES_TO_WORDS_8(BC, 86, 98, 76, 55, BD, EB, B3),
+        BYTES_TO_WORDS_8(E7, 93, 3A, AA, D8, 35, C6, 5A) },
+    &double_jacobian_default,
+    &mod_sqrt_default,
+    &x_side_default,
+    &vli_mmod_fast_secp256r1
+};
 
 static const struct uECC_Curve_t curve_secp256k1 = {
     num_words_secp256k1,
@@ -722,66 +873,120 @@ static const struct uECC_Curve_t curve_secp256k1 = {
     &vli_mmod_fast_secp256k1
 };
 
-uECC_Curve uECC_secp256k1(void) { return &curve_secp256k1; }
+
+static uECC_Curve uECC_secp256r1(void) { return &curve_secp256r1; }
+static uECC_Curve uECC_secp256k1(void) { return &curve_secp256k1; }
 
 
-/* Double in place */
-static void double_jacobian_secp256k1(uECC_word_t * X1,
-                                      uECC_word_t * Y1,
-                                      uECC_word_t * Z1,
-                                      uECC_Curve curve) {
-    /* t1 = X, t2 = Y, t3 = Z */
-    uECC_word_t t4[num_words_secp256k1];
-    uECC_word_t t5[num_words_secp256k1];
-    
-    if (uECC_vli_isZero(Z1, num_words_secp256k1)) {
-        return;
-    }
-    
-    uECC_vli_modSquare_fast(t5, Y1, curve);   /* t5 = y1^2 */
-    uECC_vli_modMult_fast(t4, X1, t5, curve); /* t4 = x1*y1^2 = A */
-    uECC_vli_modSquare_fast(X1, X1, curve);   /* t1 = x1^2 */
-    uECC_vli_modSquare_fast(t5, t5, curve);   /* t5 = y1^4 */
-    uECC_vli_modMult_fast(Z1, Y1, Z1, curve); /* t3 = y1*z1 = z3 */
-    
-    uECC_vli_modAdd(Y1, X1, X1, curve->p, num_words_secp256k1); /* t2 = 2*x1^2 */
-    uECC_vli_modAdd(Y1, Y1, X1, curve->p, num_words_secp256k1); /* t2 = 3*x1^2 */
-    if (uECC_vli_testBit(Y1, 0)) {
-        uECC_word_t carry = uECC_vli_add(Y1, Y1, curve->p, num_words_secp256k1);
-        uECC_vli_rshift1(Y1, num_words_secp256k1);
-        Y1[num_words_secp256k1 - 1] |= carry << (uECC_WORD_BITS - 1);
+// Forward declared above, since they require properties of the curve
+static void vli_mmod_fast_secp256r1(uint32_t *result, uint32_t *product) {
+    uint32_t tmp[num_words_secp256r1];
+    int carry;
+
+    /* t */
+    uECC_vli_set(result, product, num_words_secp256r1);
+
+    /* s1 */
+    tmp[0] = tmp[1] = tmp[2] = 0;
+    tmp[3] = product[11];
+    tmp[4] = product[12];
+    tmp[5] = product[13];
+    tmp[6] = product[14];
+    tmp[7] = product[15];
+    carry = uECC_vli_add(tmp, tmp, tmp, num_words_secp256r1);
+    carry += uECC_vli_add(result, result, tmp, num_words_secp256r1);
+
+    /* s2 */
+    tmp[3] = product[12];
+    tmp[4] = product[13];
+    tmp[5] = product[14];
+    tmp[6] = product[15];
+    tmp[7] = 0;
+    carry += uECC_vli_add(tmp, tmp, tmp, num_words_secp256r1);
+    carry += uECC_vli_add(result, result, tmp, num_words_secp256r1);
+
+    /* s3 */
+    tmp[0] = product[8];
+    tmp[1] = product[9];
+    tmp[2] = product[10];
+    tmp[3] = tmp[4] = tmp[5] = 0;
+    tmp[6] = product[14];
+    tmp[7] = product[15];
+    carry += uECC_vli_add(result, result, tmp, num_words_secp256r1);
+
+    /* s4 */
+    tmp[0] = product[9];
+    tmp[1] = product[10];
+    tmp[2] = product[11];
+    tmp[3] = product[13];
+    tmp[4] = product[14];
+    tmp[5] = product[15];
+    tmp[6] = product[13];
+    tmp[7] = product[8];
+    carry += uECC_vli_add(result, result, tmp, num_words_secp256r1);
+
+    /* d1 */
+    tmp[0] = product[11];
+    tmp[1] = product[12];
+    tmp[2] = product[13];
+    tmp[3] = tmp[4] = tmp[5] = 0;
+    tmp[6] = product[8];
+    tmp[7] = product[10];
+    carry -= uECC_vli_sub(result, result, tmp, num_words_secp256r1);
+
+    /* d2 */
+    tmp[0] = product[12];
+    tmp[1] = product[13];
+    tmp[2] = product[14];
+    tmp[3] = product[15];
+    tmp[4] = tmp[5] = 0;
+    tmp[6] = product[9];
+    tmp[7] = product[11];
+    carry -= uECC_vli_sub(result, result, tmp, num_words_secp256r1);
+
+    /* d3 */
+    tmp[0] = product[13];
+    tmp[1] = product[14];
+    tmp[2] = product[15];
+    tmp[3] = product[8];
+    tmp[4] = product[9];
+    tmp[5] = product[10];
+    tmp[6] = 0;
+    tmp[7] = product[12];
+    carry -= uECC_vli_sub(result, result, tmp, num_words_secp256r1);
+
+        /* d4 */
+    tmp[0] = product[14];
+    tmp[1] = product[15];
+    tmp[2] = 0;
+    tmp[3] = product[9];
+    tmp[4] = product[10];
+    tmp[5] = product[11];
+    tmp[6] = 0;
+    tmp[7] = product[13];
+    carry -= uECC_vli_sub(result, result, tmp, num_words_secp256r1);
+
+    if (carry < 0) {
+        do {
+            carry += uECC_vli_add(result, result, curve_secp256r1.p, num_words_secp256r1);
+        } while (carry < 0);
     } else {
-        uECC_vli_rshift1(Y1, num_words_secp256k1);
+        while (carry || uECC_vli_cmp_unsafe(curve_secp256r1.p, result, num_words_secp256r1) != 1) {
+            carry -= uECC_vli_sub(result, result, curve_secp256r1.p, num_words_secp256r1);
+        }
     }
-    /* t2 = 3/2*(x1^2) = B */
-    
-    uECC_vli_modSquare_fast(X1, Y1, curve);                     /* t1 = B^2 */
-    uECC_vli_modSub(X1, X1, t4, curve->p, num_words_secp256k1); /* t1 = B^2 - A */
-    uECC_vli_modSub(X1, X1, t4, curve->p, num_words_secp256k1); /* t1 = B^2 - 2A = x3 */
-    
-    uECC_vli_modSub(t4, t4, X1, curve->p, num_words_secp256k1); /* t4 = A - x3 */
-    uECC_vli_modMult_fast(Y1, Y1, t4, curve);                   /* t2 = B * (A - x3) */
-    uECC_vli_modSub(Y1, Y1, t5, curve->p, num_words_secp256k1); /* t2 = B * (A - x3) - y1^4 = y3 */
 }
 
-/* Computes result = x^3 + b. result must not overlap x. */
-static void x_side_secp256k1(uECC_word_t *result, const uECC_word_t *x, uECC_Curve curve) {
-    uECC_vli_modSquare_fast(result, x, curve);                                /* r = x^2 */
-    uECC_vli_modMult_fast(result, result, x, curve);                          /* r = x^3 */
-    uECC_vli_modAdd(result, result, curve->b, curve->p, num_words_secp256k1); /* r = x^3 + b */
-}
-
-#if (!asm_mmod_fast_secp256k1)
-static void omega_mult_secp256k1(uECC_word_t *result, const uECC_word_t *right);
+// Forward declared above, since they require properties of the curve
 static void vli_mmod_fast_secp256k1(uECC_word_t *result, uECC_word_t *product) {
     uECC_word_t tmp[2 * num_words_secp256k1];
     uECC_word_t carry;
-    
+
     uECC_vli_clear(tmp, num_words_secp256k1);
     uECC_vli_clear(tmp + num_words_secp256k1, num_words_secp256k1);
-    
+
     omega_mult_secp256k1(tmp, product + num_words_secp256k1); /* (Rq, q) = q * c */
-    
+
     carry = uECC_vli_add(result, product, tmp, num_words_secp256k1); /* (C, r) = r + q       */
     uECC_vli_clear(product, num_words_secp256k1);
     omega_mult_secp256k1(product, tmp + num_words_secp256k1); /* Rq*c */
@@ -795,24 +1000,6 @@ static void vli_mmod_fast_secp256k1(uECC_word_t *result, uECC_word_t *product) {
         uECC_vli_sub(result, result, curve_secp256k1.p, num_words_secp256k1);
     }
 }
-
-static void omega_mult_secp256k1(uint32_t * result, const uint32_t * right) {
-    /* Multiply by (2^9 + 2^8 + 2^7 + 2^6 + 2^4 + 1). */
-    uint32_t carry = 0;
-    wordcount_t k;
-
-    for (k = 0; k < num_words_secp256k1; ++k) {
-        uint64_t p = (uint64_t)0x3D1 * right[k] + carry;
-        result[k] = (uint32_t) p;
-        carry = p >> 32;
-    }
-    result[num_words_secp256k1] = carry;
-    /* add the 2^32 multiple */
-    result[1 + num_words_secp256k1] =
-        uECC_vli_add(result + 1, result + 1, right, num_words_secp256k1); 
-}
-
-#endif /* (!asm_mmod_fast_secp256k1) */
 
 
 // /#include "curve-specific.inc"
@@ -1087,7 +1274,7 @@ static int uECC_shared_secret(const uint8_t *public_key,
        protection against side-channel attacks. */
     if (g_rng_function) {
         if (!uECC_generate_random_int(p2[carry], curve->p, num_words)) {
-            return SECP256K1_ERROR;
+            return ECC_ERROR;
         }
         initial_Z = p2[carry];
     }
@@ -1144,7 +1331,7 @@ static int uECC_valid_point(const uECC_word_t *point, uECC_Curve curve) {
     return (int)(uECC_vli_equal(tmp1, tmp2, num_words));
 }
 
-int uECC_valid_public_key(const uint8_t *public_key, uECC_Curve curve) {
+static int uECC_valid_public_key(const uint8_t *public_key, uECC_Curve curve) {
     uECC_word_t _public[uECC_MAX_WORDS * 2];
 
     uECC_vli_bytesToNative(_public, public_key, curve->num_bytes);
@@ -1162,23 +1349,23 @@ static int uECC_compute_public_key(const uint8_t *private_key, uint8_t *public_k
 
     /* Make sure the private key is in the range [1, n-1]. */
     if (uECC_vli_isZero(_private, BITS_TO_WORDS(curve->num_n_bits))) {
-        return SECP256K1_ERROR;
+        return ECC_ERROR;
     }
 
     if (uECC_vli_cmp(curve->n, _private, BITS_TO_WORDS(curve->num_n_bits)) != 1) {
-        return SECP256K1_ERROR;
+        return ECC_ERROR;
     }
 
     /* Compute public key. */
     if (!EccPoint_compute_public_key(_public, _private, curve)) {
-        return SECP256K1_ERROR;
+        return ECC_ERROR;
     }
 
     uECC_vli_nativeToBytes(public_key, curve->num_bytes, _public);
     uECC_vli_nativeToBytes(
         public_key + curve->num_bytes, curve->num_bytes, _public + curve->num_words);
 
-    return SECP256K1_SUCCESS;
+    return ECC_SUCCESS;
 }
 
 /* -------- ECDSA code -------- */
@@ -1358,7 +1545,7 @@ static int uECC_sign_deterministic(const uint8_t *private_key,
                                    uECC_Curve curve) {
     // <RicMoo>
     // See: #51; not supporting secp160r1
-    if (curve->num_bytes == 20) { return SECP256K1_ERROR; }
+    if (curve->num_bytes == 20) { return ECC_ERROR; }
     // </RicMoo>
 
     uint8_t *K = hash_context->tmp;
@@ -1464,7 +1651,7 @@ static int uECC_sign_deterministic(const uint8_t *private_key,
         //if (uECC_sign_with_k(private_key, message_hash, hash_size, T, signature, curve)) {
         if (uECC_sign_with_k(private_key, message_hash, hash_size, k, signature, curve)) {
             // </RicMoo>
-            return SECP256K1_SUCCESS;
+            return ECC_SUCCESS;
         }
 
         /* K = HMAC_K(V || 0x00) */
@@ -1476,7 +1663,7 @@ static int uECC_sign_deterministic(const uint8_t *private_key,
         update_V(hash_context, K, V);
     }
 
-    return SECP256K1_ERROR;
+    return ECC_ERROR;
 }
 
 static bitcount_t smax(bitcount_t a, bitcount_t b) {
@@ -1599,24 +1786,24 @@ typedef struct HashContext {
     Sha256Context ctx;
 } HashContext;
 
-void init_SHA256(const uECC_HashContext *base) {
+static void init_SHA256(const uECC_HashContext *base) {
     HashContext *context = (HashContext *)base;
     sha2_initSha256(&context->ctx);
 }
 
-void update_SHA256(const uECC_HashContext *base, const uint8_t *message, unsigned message_size) {
+static void update_SHA256(const uECC_HashContext *base, const uint8_t *message, unsigned message_size) {
     HashContext *context = (HashContext *)base;
     sha2_updateSha256(&context->ctx, message, message_size);
 }
 
-void finish_SHA256(const uECC_HashContext *base, uint8_t *hash_result) {
+static void finish_SHA256(const uECC_HashContext *base, uint8_t *hash_result) {
     HashContext *context = (HashContext *)base;
     sha2_finalSha256(&context->ctx, hash_result);
 }
 
-int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature) {
+int32_t ecc_signSecp256k1(uint8_t *privateKey, uint8_t *digest, uint8_t *signature) {
     uint8_t tmp[32 + 32 + 64];
-
+// @TODO: This dones't need to be nested structs...
     HashContext ctx = {
         .uECC = {
             .init_hash = &init_SHA256,
@@ -1634,20 +1821,54 @@ int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature)
 //int32_t secp256k1_verify(uint8_t *digest, uint8_t *signature, uint8_t *publicKey) {
 //}
 
-int32_t secp256k1_computePublicKey(uint8_t *privateKey, uint8_t *publicKey) {
+int32_t ecc_computePublicKeySecp256k1(uint8_t *privateKey, uint8_t *publicKey) {
     return uECC_compute_public_key(privateKey, publicKey, uECC_secp256k1());
 }
 
-void secp256k1_compressPublicKey(uint8_t *uncompressed, uint8_t *compressed) {
+void ecc_compressPublicKeySecp256k1(uint8_t *uncompressed, uint8_t *compressed) {
     uECC_compress(uncompressed, compressed, uECC_secp256k1());
 }
 
-void secp256k1_decompressPublicKey(uint8_t *compressed, uint8_t *uncompressed) {
+void ecc_decompressPublicKeySecp256k1(uint8_t *compressed, uint8_t *uncompressed) {
     uECC_decompress(compressed, uncompressed, uECC_secp256k1());
 }
 
-int32_t secp256k1_computeSharedSecret(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret) {
+int32_t ecc_computeSharedSecretSecp256k1(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret) {
     return uECC_shared_secret(otherPublicKey, privateKey, sharedSecret, uECC_secp256k1());
+}
+
+
+int32_t ecc_signP256(uint8_t *privateKey, uint8_t *digest, uint8_t *signature) {
+    uint8_t tmp[32 + 32 + 64];
+// @TODO: This dones't need to be nested structs...
+    HashContext ctx = {
+        .uECC = {
+            .init_hash = &init_SHA256,
+            .update_hash = &update_SHA256,
+            .finish_hash = &finish_SHA256,
+            .block_size = 64,
+            .result_size = 32,
+            .tmp = tmp
+        },
+    };
+
+    return uECC_sign_deterministic(privateKey, digest, 32, &ctx.uECC, signature, uECC_secp256r1());
+}
+
+int32_t ecc_computePublicKeyP256(uint8_t *privateKey, uint8_t *publicKey) {
+    return uECC_compute_public_key(privateKey, publicKey, uECC_secp256r1());
+}
+
+void ecc_compressPublicKeyP256(uint8_t *uncompressed, uint8_t *compressed) {
+    uECC_compress(uncompressed, compressed, uECC_secp256r1());
+}
+
+void ecc_decompressPublicKeyP256(uint8_t *compressed, uint8_t *uncompressed) {
+    uECC_decompress(compressed, uncompressed, uECC_secp256r1());
+}
+
+int32_t ecc_computeSharedSecretP256(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret) {
+    return uECC_shared_secret(otherPublicKey, privateKey, sharedSecret, uECC_secp256r1());
 }
 
 // </RicMoo>

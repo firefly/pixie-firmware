@@ -42,8 +42,8 @@
  *
  */
 
-#ifndef __SECP256K1_H__
-#define __SECP256K1_H__
+#ifndef __ECC_H__
+#define __ECC_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,35 +52,46 @@ extern "C" {
 #include <stdint.h>
 
 
-#define SECP256K1_SIGNATURE_SIZE             (65)
+#define ECC_SIGNATURE_SIZE             (65)
 
-#define SECP256K1_PRIVATEKEY_SIZE            (32)
-#define SECP256K1_DIGEST_SIZE                (32)
+#define ECC_PRIVATEKEY_SIZE            (32)
+#define ECC_DIGEST_SIZE                (32)
 
-#define SECP256K1_PUBLICKEY_SIZE             (65)
-#define SECP256K1_COMPRESSED_PUBLICKEY_SIZE  (33)
+#define ECC_PUBLICKEY_SIZE             (65)
+#define ECC_COMPRESSED_PUBLICKEY_SIZE  (33)
 
-#define SECP256K1_SHARED_SECRET_SIZE         (32)
+#define ECC_SHARED_SECRET_SIZE         (32)
 
-#define SECP256K1_SUCCESS  (1)
-#define SECP256K1_ERROR    (0)
-
-int32_t secp256k1_sign(uint8_t *privateKey, uint8_t *digest, uint8_t *signature);
-
-int32_t secp256k1_recoverPublicKey(uint8_t *digest, uint8_t *signature, uint8_t *publicKey);
-
-int32_t secp256k1_computePublicKey(uint8_t *privateKey, uint8_t *publicKey);
-
-void secp256k1_compressPublicKey(uint8_t *publicKey, uint8_t *compressedPublicKey);
-void secp256k1_decompressPublicKey(uint8_t *compressedPublicKey, uint8_t *publicKey);
-
-int32_t secp256k1_computeSharedSecret(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret);
+#define ECC_SUCCESS  (1)
+#define ECC_ERROR    (0)
 
 
-//int32_t secp256k1_addPoints(uint8_t *p0, uint8_t *p1);
+int32_t ecc_signSecp256k1(uint8_t *privateKey, uint8_t *digest, uint8_t *signature);
+
+int32_t ecc_recoverPublicKeySecp256k1(uint8_t *digest, uint8_t *signature, uint8_t *publicKey);
+
+int32_t ecc_computePublicKeySecp256k1(uint8_t *privateKey, uint8_t *publicKey);
+
+void ecc_compressPublicKeySecp256k1(uint8_t *publicKey, uint8_t *compressedPublicKey);
+void ecc_decompressPublicKeySecp256k1(uint8_t *compressedPublicKey, uint8_t *publicKey);
+
+int32_t ecc_computeSharedSecretSecp256k1(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret);
+
+
+int32_t ecc_signP256(uint8_t *privateKey, uint8_t *digest, uint8_t *signature);
+
+int32_t ecc_recoverPublicKeyP256(uint8_t *digest, uint8_t *signature, uint8_t *publicKey);
+
+int32_t ecc_computePublicKeyP256(uint8_t *privateKey, uint8_t *publicKey);
+
+void ecc_compressPublicKeyP256(uint8_t *publicKey, uint8_t *compressedPublicKey);
+void ecc_decompressPublicKeyP256(uint8_t *compressedPublicKey, uint8_t *publicKey);
+
+int32_t ecc_computeSharedSecretP256(uint8_t *privateKey, uint8_t *otherPublicKey, uint8_t *sharedSecret);
+
 
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */
 
-#endif  /* __SECP256K1_H__ */
+#endif  /* __ECC_H__ */
