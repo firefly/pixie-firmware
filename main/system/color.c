@@ -115,6 +115,7 @@ rgb16_t color_rgb16(color_t color) {
     return RGB16((color >> 24) & 0xff, (color >> 16) & 0xff, color & 0xff);
 }
 
+
 //rgba16_t color_rgba16(color_t color) {
 //    if (color & COLOR_HSV) { color = _fromHSV(color); }
 //    return RGBA16((color >> 24) & 0xff, (color >> 16) & 0xff, color & 0xff, color >> 24);
@@ -125,8 +126,34 @@ rgb24_t color_rgb24(color_t color) {
     return color;
 }
 
-/*
+static int32_t lerp(int32_t a, int32_t b, int32_t top, int32_t bottom) {
+    return ((top * b) / bottom) + (((bottom - top) * a) / bottom);
+}
+
+color_t color_lerpQuotient(color_t c0, color_t c1, int32_t num, int32_t denom) {
+    int32_t a = lerp(ALPHA(c0), ALPHA(c1), num, denom);
+
+    if (((c0 >> 31) + (c1 >> 31)) != 2) {
+        c0 = color_rgb24(c0);
+        c1 = color_rgb24(c1);
+
+        int32_t r = lerp(RGB_RED(c0), RGB_RED(c1), num, denom);
+        int32_t g = lerp(RGB_BLUE(c0), RGB_BLUE(c1), num, denom);
+        int32_t b = lerp(RGB_GREEN(c0), RGB_GREEN(c1), num, denom);
+
+        return color_rgb(r, g, b, a);
+    }
+
+    int32_t h = lerp(HSV_HUE(c0), HSV_HUE(c1), num, denom);
+    int32_t s = lerp(HSV_SAT(c0), HSV_SAT(c1), num, denom);
+    int32_t v = lerp(HSV_VAL(c0), HSV_VAL(c1), num, denom);
+
+    return color_hsv(h, s, v, a);
+}
+
+
 // Test program to validate HSV conversion
+/*
 int main() {
     for (uint32_t h  = 0; h < 360; h++) {
         for (uint32_t s  = 0; s <= 0x3f; s++) {

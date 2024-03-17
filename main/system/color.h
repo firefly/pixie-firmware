@@ -27,9 +27,21 @@ typedef uint32_t color_t;
 // Stores RGB888 as a uint32_t
 #define RGB24(r,g,b)    ((rgb24_t)(((r) << 16) | ((g) << 8) | (b)))
 
-// Extract the alpha of a color_t
-#define ALPHA(c)       (0x3f - (((c) >> 24) & 0x3f))
-#define MAX_ALPHA      (0x3f)
+// Extract color components
+#define _IS_HUE_NEGATIVE(c)  (!!((c) & 0x40000000))
+#define IS_HSV(c)            (!!((c) & 0x80000000))
+
+#define RGB_RED(c)           (((c) >> 16) & 0xff)
+#define RGB_BLUE(c)          (((c) >> 8) & 0xff)
+#define RGB_GREEN(c)         ((c) & 0xff)
+
+#define HSV_HUE(c)           ((((c) >> 12) & 0xfff) * (_IS_HUE_NEGATIVE(c) ? -1: 1))
+#define HSV_SAT(c)           (((c) >> 6) & 0x3c)
+#define HSV_VAL(c)           ((c) & 0x3c)
+
+#define ALPHA(c)             (0x3f - (((c) >> 24) & 0x3f))
+
+#define MAX_ALPHA            (0x3f)
 
 
 
@@ -63,7 +75,8 @@ rgb24_t color_rgb24(color_t color);
 
 // Linear-interpolate from color a to b at parametric value t. When
 // the color-spaces (RGB vs HSV) differ, values are coerced to RGBA.
-color_t color_lerpfx(color_t a, color_t b, fixed_t t);
+color_t color_lerpfx(color_t c0, color_t c1, fixed_t t);
+color_t color_lerpQuotient(color_t c0, color_t c1, int32_t num, int32_t denom);
 
 color_t color_blend(color_t foreground, color_t background);
 

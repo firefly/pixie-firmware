@@ -24,7 +24,7 @@ typedef enum AnimationType {
 } AnimationType;
 
 typedef struct ColorRamp {
-    uint32_t colors[MAX_COLORS];
+    color_t colors[MAX_COLORS];
     uint32_t count;
 } ColorRamp;
 
@@ -202,9 +202,9 @@ PixelsContext pixels_init(uint32_t pin) {
 }
 
 // linear-interpolation used for color bytes in tick
-uint8_t lerp(uint8_t a, uint8_t b, uint32_t top, uint32_t bottom) {
-    return ((top * a) / bottom) + (((bottom - top) * b) / bottom);
-}
+//uint8_t lerp(int32_t a, int32_t b, int32_t top, int32_t bottom) {
+//    return ((top * a) / bottom) + (((bottom - top) * b) / bottom);
+//}
 
 void pixels_tick(PixelsContext _context) {
     _PixelsContext *context = (_PixelsContext*)_context;
@@ -212,12 +212,13 @@ void pixels_tick(PixelsContext _context) {
     uint32_t offset = 0;
     for (uint32_t pixel = 0; pixel < LED_COUNT; pixel++) {
 
-        uint32_t color = 0, repeat = 0;
+        rgb24_t rgb = 0;
+        uint32_t repeat = 0;
         switch(context->type[pixel]) {
             case AnimationTypeNone:
                 break;
             case AnimationTypeStatic:
-                color = context->colorRamps[pixel].colors[0];
+                rgb = color_rgb24(context->colorRamps[pixel].colors[0]);
                 break;
             case AnimationTypeRepeat:
                 repeat = 1;
@@ -237,26 +238,27 @@ void pixels_tick(PixelsContext _context) {
                 }
 
                 uint32_t count = context->colorRamps[pixel].count;
-                uint32_t elapsed = dt * count;
-                uint32_t index = elapsed / duration;
-                uint32_t c0 = context->colorRamps[pixel].colors[index];
-                uint32_t c1 = context->colorRamps[pixel].colors[(index + 1) % count];
+                uint32_t index = dt * (count - 1) / duration;
+                color_t c0 = context->colorRamps[pixel].colors[index];
+                color_t c1 = context->colorRamps[pixel].colors[(index + 1) % count];
 
-                elapsed = duration - (elapsed - (index * duration));
+                // @TODO: Lots of optimizations here. :)
+                int32_t chunk = duration / (count - 1);
 
-                uint32_t r = lerp(c0 >> 16, c1 >> 16, elapsed, duration);
-                uint32_t g = lerp(c0 >> 8, c1 >> 8, elapsed, duration);
-                uint32_t b = lerp(c0, c1, elapsed, duration);
+                //color_t color = color_lerpQuotient(c0, c1, elapsed, duration);
+                color_t color = color_lerpQuotient(c0, c1, dt - index * chunk, chunk);
+                //printf("hue=%ld dt=%ld index=%ld\n", HSV_HUE(color), dt, index);
 
-                color = RGB24(r, g, b);
+                rgb = color_rgb24(color);
+
                 break;
             }
         }
 
         // WS2812 output pixels in GRB format
-        context->pixels[offset++] = (color >> 8) & 0xff;
-        context->pixels[offset++] = (color >> 16) & 0xff;
-        context->pixels[offset++] = color & 0xff;
+        context->pixels[offset++] = (rgb >> 8) & 0xff;
+        context->pixels[offset++] = (rgb >> 16) & 0xff;
+        context->pixels[offset++] = rgb & 0xff;
     }
 
     // Broadcast the pixel data
@@ -287,16 +289,16 @@ void pixels_free(PixelsContext _context) {
     free(_context);
 }
 
-void pixels_setRGB(PixelsContext _context, uint32_t index, uint32_t rgb) {
+void pixels_setColor(PixelsContext _context, uint32_t index, color_t color) {
     if (index >= LED_COUNT) { return; }
 
     _PixelsContext *context = (_PixelsContext*)_context;
-    context->colorRamps[index].colors[0] = rgb;
+    context->colorRamps[index].colors[0] = color;
     context->colorRamps[index].count = 1;
     context->type[index] = AnimationTypeStatic;
 }
 
-void pixels_animateRGB(PixelsContext _context, uint32_t index, uint32_t* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
+void pixels_animateColor(PixelsContext _context, uint32_t index, color_t* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
     if (index >= LED_COUNT) { return; }
 
     _PixelsContext *context = (_PixelsContext*)_context;
