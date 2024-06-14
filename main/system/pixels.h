@@ -7,9 +7,9 @@ extern "C" {
 
 #include <stdint.h>
 
-#include "./color.h"
+#include "firefly-color.h"
 
-#define PIXEL_COUNT    (1)
+#define PIXEL_COUNT   (4)
 
 // Keypad Context Object (opaque; do not inspect or rely on internals)
 typedef void* PixelsContext;
@@ -20,10 +20,10 @@ void pixels_free(PixelsContext context);
 void pixels_tick(PixelsContext context);
 
 // Set (and hold) the color
-void pixels_setColor(PixelsContext context, uint32_t index, color_t color);
+void pixels_setColor(PixelsContext context, uint32_t index, color_ffxt color);
 
 // Animate the color through the color ramp over duration millis, optionally repeating
-void pixels_animateColor(PixelsContext context, uint32_t index, color_t* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat);
+void pixels_animateColor(PixelsContext context, uint32_t index, color_ffxt* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat);
 
 
 #ifdef __cplusplus

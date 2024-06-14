@@ -5,15 +5,18 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 
-#include "crypto/keccak256.h"
-#include "crypto/secp256k1.h"
+#include "firefly-scene.h"
+#include "firefly-display.h"
 
-#include "system/color.h"
-#include "system/curves.h"
-#include "system/display.h"
+#include "crypto/keccak256.h"
+#include "crypto/ecc.h"
+
+#include "system/ble.h"
+//#include "system/color.h"
+//#include "system/curves.h"
+#include "system/device-info.h"
 #include "system/keypad.h"
 #include "system/pixels.h"
-#include "system/scene.h"
 #include "system/utils.h"
 
 #include "system/output.h"
@@ -40,7 +43,7 @@
 
 #elif BOARD_REV == 3
 
-#define DISPLAY_BUS        (DisplaySpiBus2)
+#define DISPLAY_BUS        (FfxDisplaySpiBus2)
 #define PIN_DISPLAY_DC     (4)
 #define PIN_DISPLAY_RESET  (5)
 
@@ -51,12 +54,13 @@
 #define PIN_BUTTON_4       (1 << 2)
 
 #define PIN_PIXELS         (9)
+#define PIXEL_COUNT        (4)
 
 #endif
 
 
 #define FRAMERATE          (60)
-#define FRAMEDELAY         (1000 / (FRAMERATE + 1))
+#define FRAMEDELAY         (1000 / ((FRAMERATE) + 1))
 
 // Idea: If current rate of last 60 frames if going to be early,
 // use delay_hi
@@ -64,16 +68,30 @@
 #define FRAME_DELAY_HI     ((FRAME_DELAY_LO) + 1)
 
 static TaskHandle_t taskIoHandle = NULL;
+static TaskHandle_t taskReplHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
 
-void bounce(SceneContext scene, Node node, SceneActionStop stopAction) {
-    Point point = scene_nodePosition(node);
+void bounce(FfxScene scene, FfxNode node, FfxSceneActionStop stopAction) {
+//    FfxPoint *_point = ffx_scene_nodePosition(node);
 
+    FfxPoint point;
     point.x = rand() % 220;
     point.y = rand() % 220;
-    scene_boxSetColor(node, rand() & 0xffff);
 
-    scene_nodeAnimatePosition(scene, node, point, 500 + rand() % 3500, CurveEaseOutElastic, bounce);
+    //ffx_scene_boxSetColor(node, rand() & 0xffff);
+
+    ffx_scene_nodeAnimatePosition(scene, node, point, 500 + rand() % 3500, FfxCurveEaseOutElastic, bounce);
+}
+
+void renderScene(uint8_t *fragment, uint32_t y0, void *context) {
+    FfxScene scene = context;
+    ffx_scene_render(scene, fragment, y0, FfxDisplayFragmentHeight);
+}
+
+static void setNodePos(FfxNode node, int32_t x, int32_t y) {
+    FfxPoint *point = ffx_scene_nodePosition(node);
+    point->x = x;
+    point->y = y;
 }
 
 void taskIoFunc(void* pvParameter) {
@@ -85,14 +103,20 @@ void taskIoFunc(void* pvParameter) {
     // The subset of keys to trigger a system reset
     uint32_t resetKeys = PIN_BUTTON_1 | PIN_BUTTON_3;
 
+    // Scene context
+    FfxScene scene;
+    scene = ffx_scene_init(2048);
+
     // I/O contexts
-    DisplayContext display;
+    FfxDisplayContext display;
     KeypadContext keypad;
     PixelsContext pixels;
 
     {
         uint32_t t0 = ticks();
-        display = display_init(DISPLAY_BUS, PIN_DISPLAY_DC, PIN_DISPLAY_RESET, DisplayRotationPinsLeft);
+        display = ffx_display_init(DISPLAY_BUS,
+          PIN_DISPLAY_DC, PIN_DISPLAY_RESET, FfxDisplayRotationPinsLeft,
+          renderScene, scene);
         printf("[io] init display: dt=%ldms\n", ticks() - t0);
     }
 
@@ -125,58 +149,78 @@ void taskIoFunc(void* pvParameter) {
 
         //pixels_setRGB(pixels, 0, RGB32(0, 0, 255));
         //uint32_t colorRamp[] = { RGB32(255, 0, 0), RGB32(0, 255, 0), RGB32(0, 0, 255) };
-        uint32_t colorRamp[] = { RGB24(85, 0, 0), RGB24(0, 85, 0), RGB24(0, 0, 85) };
-        pixels_animateRGB(pixels, 0, colorRamp, 3, 1000, 1);
+        const uint32_t delta = 40;
+        color_ffxt colorRamp1[] = {
+            ffx_color_hsv(0 + 0 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(360 + 0 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(0 + 0 * delta, 0x3c, 0x1c, 0x0c),
+        };
+        color_ffxt colorRamp2[] = {
+            ffx_color_hsv(0 + 1 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(360 + 1 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(0 + 1 * delta, 0x3c, 0x1c, 0x0c),
+        };
+        color_ffxt colorRamp3[] = {
+            ffx_color_hsv(0 + 2 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(360 + 2 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(0 + 2 * delta, 0x3c, 0x1c, 0x0c),
+        };
+        color_ffxt colorRamp4[] = {
+            ffx_color_hsv(0 + 3 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(360 + 3 * delta, 0x3c, 0x1c, 0x0c),
+            ffx_color_hsv(0 + 3 * delta, 0x3c, 0x1c, 0x0c),
+        };
+        pixels_animateColor(pixels, 0, colorRamp1, 2, 6000, 1);
+        pixels_animateColor(pixels, 1, colorRamp2, 2, 6000, 1);
+        pixels_animateColor(pixels, 2, colorRamp3, 2, 6000, 1);
+        pixels_animateColor(pixels, 3, colorRamp4, 2, 6000, 1);
     }
 
     char fpsTextBuffer[12];
     memset(fpsTextBuffer, 0, sizeof(fpsTextBuffer));
 
-    // Scene context
-    SceneContext scene;
-    Node fpsText, text;
+    FfxNode fpsText, text;
 
-    Node cursor;
+    FfxNode cursor;
     int32_t cursorIndex = 0;
 
     {
         uint32_t t0 = ticks();
 
-        scene = scene_init(2048);
-        Node root = scene_root(scene);
-        Node fill = scene_createFill(scene, 0x21ea); //RGB(0x23, 0x3b, 0x52));
-        scene_appendChild(root, fill);
+        FfxNode root = ffx_scene_root(scene);
+        FfxNode fill = ffx_scene_createFill(scene, 0x21ea); //RGB(0x23, 0x3b, 0x52));
+        ffx_scene_appendChild(root, fill);
 
-        Node img = scene_createImage(scene, moonbeam, sizeof(moonbeam));
-        scene_nodeSetPosition(img, (Point){ .x = 150, .y = 0 });
-        scene_appendChild(root, img);
+        FfxNode img = ffx_scene_createImage(scene, moonbeam, sizeof(moonbeam));
+        setNodePos(img, 150, 0);
+        ffx_scene_appendChild(root, img);
 
-        Node img2 = scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
-        scene_appendChild(root, img2);
+        FfxNode img2 = ffx_scene_createImage(scene, (uint16_t*)screen, sizeof(screen) / 2);
+        ffx_scene_appendChild(root, img2);
 
         const char* const phrase = "Hello y g World!";
-        text = scene_createText(scene, phrase, strlen(phrase));
-        scene_appendChild(root, text);
-        scene_nodeSetPosition(text, (Point){ .x = 100, .y = 120 });
+        text = ffx_scene_createText(scene, phrase, strlen(phrase));
+        ffx_scene_appendChild(root, text);
+        setNodePos(text, 100, 120);
 
         for (uint32_t i = 0; i < 30; i++)
         {
-            Node box = scene_createBox(scene, (Size){ .width = 5, .height = 5 }, RGB16(0, 0, 255));
-            scene_nodeSetPosition(box, (Point){ .x = 10, .y = 10 });
-            scene_appendChild(root, box);
-            bounce(scene, box, SceneActionStopFinal);
+            FfxNode box = ffx_scene_createBox(scene, (FfxSize){ .width = 5, .height = 5 }, RGB16(0, 0, 255));
+            setNodePos(box, 10, 10);
+            ffx_scene_appendChild(root, box);
+            bounce(scene, box, FfxSceneActionStopFinal);
         }
 
-        cursor = scene_createBox(scene, (Size){ .width = 220, .height = 32 }, RGB16(40, 40, 128));
-        scene_nodeSetPosition(cursor, (Point){ .x = 10, .y = 10 });
-        scene_appendChild(root, cursor);
+        cursor = ffx_scene_createBox(scene, (FfxSize){ .width = 220, .height = 32 }, RGB16(40, 40, 128));
+        setNodePos(cursor, 10, 10);
+        ffx_scene_appendChild(root, cursor);
 
-        fpsText = scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
-        scene_appendChild(root, fpsText);
-        scene_textSetTextInt(fpsText, 0);
-        scene_nodeSetPosition(fpsText, (Point){ .x = 200, .y = 230 });
+        fpsText = ffx_scene_createTextFlip(scene, fpsTextBuffer, sizeof(fpsTextBuffer));
+        ffx_scene_appendChild(root, fpsText);
+        ffx_scene_textSetTextInt(fpsText, 0);
+        setNodePos(fpsText, 200, 230);
 
-        scene_sequence(scene);
+        ffx_scene_sequence(scene);
 
         //scene_dump(scene);
 
@@ -198,7 +242,7 @@ void taskIoFunc(void* pvParameter) {
         keypad_sample(keypad);
 
         // Render a screen fragment; if the last fragment is complete, the frame is complete
-        uint32_t frameDone = display_renderScene(display, scene);
+        uint32_t frameDone = ffx_display_renderFragment(display);
 
         if (frameDone) {
             pixels_tick(pixels);
@@ -220,17 +264,15 @@ void taskIoFunc(void* pvParameter) {
                 }
             }
 
-            Point point = scene_nodePosition(text);
+            FfxPoint *point = ffx_scene_nodePosition(text);
 
-            if (keypad_isDown(keypad, PIN_BUTTON_4)) { point.x++; }
-            if (keypad_isDown(keypad, PIN_BUTTON_3)) { point.x--; }
-            if (keypad_isDown(keypad, PIN_BUTTON_2)) { point.y++; }
-            if (keypad_isDown(keypad, PIN_BUTTON_1)) { point.y--; }
-
-            scene_nodeSetPosition(text, point);
+            if (keypad_isDown(keypad, PIN_BUTTON_4)) { point->x++; }
+            if (keypad_isDown(keypad, PIN_BUTTON_3)) { point->x--; }
+            if (keypad_isDown(keypad, PIN_BUTTON_2)) { point->y++; }
+            if (keypad_isDown(keypad, PIN_BUTTON_1)) { point->y--; }
 
             if (keypad_read(keypad) == (PIN_BUTTON_1 | PIN_BUTTON_2)) {
-                scene_dump(scene);
+                //scene_dump(scene);
             }
 
             // The reset sequence was held for 2s... reset!
@@ -247,18 +289,20 @@ void taskIoFunc(void* pvParameter) {
                     if (cursorIndex < 0) { cursorIndex = 0; }
                 }
 
-                scene_stopAnimations(cursor, SceneActionStopCurrent);
-                scene_nodeAnimatePosition(scene, cursor, (Point){ .x = 10, .y = 10 + (cursorIndex * 32) }, 150, CurveEaseOutQuad, NULL);
+                ffx_scene_stopAnimations(cursor, FfxSceneActionStopCurrent);
+//              //  scene_nodeAnimatePosition(scene, cursor, (Point){ .x = 10, .y = 10 + (cursorIndex * 32) }, 150, CurveEaseOutQuad, NULL);
+                ffx_scene_nodeAnimatePosition(scene, cursor, (FfxPoint){ .x = 10, .y = 10 + (cursorIndex * 32) }, 150, FfxCurveEaseOutQuad, NULL);
             }
 
             static uint32_t fpsTrigger = 0;
             if (fpsTrigger++ > 100) {
                 fpsTrigger = 0;
-                scene_textSetTextInt(fpsText, display_fps(display));
+                ffx_scene_textSetTextInt(fpsText, ffx_display_fps(display));
             }
 
 //            if (lastFrameTime == 0) { lastFrameTime = xTaskGetTickCount(); }
             //int32_t skewLastFrameTime = lastFrameTime;
+            ffx_scene_sequence(scene);
 
             BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, FRAMEDELAY);
 
@@ -275,9 +319,36 @@ void taskIoFunc(void* pvParameter) {
     }
 }
 
+void taskReplFunc(void* pvParameter) {
+
+    // No need to block init while bringing the REPL service online
+    uint32_t *ready = (uint32_t*)pvParameter;
+    *ready = 1;
+
+    ble_init();
+
+    uint8_t buffer[256];
+    memset(buffer, 0, sizeof(buffer));
+
+    while (1) {
+    /*
+        int length = usb_serial_jtag_read_bytes(buffer, (BUF_SIZE - 1), 10);
+
+        if (length > 0) {
+            buffer[length] = 0;
+            //usb_serial_jtag_write_bytes((const char *) data, len, 20 / portTICK_PERIOD_MS);
+            printf("ECHO: (%d) %s\n", length, buffer);
+            //continue;
+        }
+*/
+        delay(1000);
+    }
+}
+
 void taskAppFunc(void* pvParameter) {
     while (1) {
         printf("Hello from App\n");
+        /*
 
         {
             int32_t t0 = ticks();
@@ -302,34 +373,37 @@ void taskAppFunc(void* pvParameter) {
         }
 
         {
-            uint8_t signature[SECP256K1_SIGNATURE_SIZE];
+            uint8_t signature[ECC_SIGNATURE_SIZE];
 
             int32_t t0 = ticks();
 
-            secp256k1_sign(signature, signature, signature);
+            ecc_signSecp256k1(signature, signature, signature);
 
             int32_t dt = ticks() - t0;
 
             printf("Sig: 0x");
-            for (int i = 0; i < SECP256K1_SIGNATURE_SIZE; i++) {
+            for (int i = 0; i < ECC_SIGNATURE_SIZE; i++) {
                 printf("%02x", signature[i]);
             }
             printf(" (took %lds for 1 sign op)\n", dt);
         }
+        */
 
-        delay(10000);
+        delay(60000);
     }
 }
 
 void app_main() {
     printf("Hello world!\n");
 
+    device_init();
+
     // Start the IO task (handles the display, LEDs and keypad)
     {
         // Pointer passed to taskIoFunc to notify us when IO is ready
         uint32_t ready = 0;
 
-        BaseType_t status = xTaskCreatePinnedToCore(&taskIoFunc, "io", 8192, &ready, 2, &taskIoHandle, 0);
+        BaseType_t status = xTaskCreatePinnedToCore(&taskIoFunc, "io", 8192, &ready, 3, &taskIoHandle, 0);
         printf("[main] start IO task: status=%d\n", status);
         assert(taskIoHandle != NULL);
 
@@ -338,9 +412,26 @@ void app_main() {
         printf("[main] IO ready\n");
     }
 
+    // Start the Command task (handles Serial REPL)
+    {
+        // Pointer passed to taskReplFunc to notify us when REPL is ready
+    device_init();
+
+        uint32_t ready = 1; // @TODO: set this to 0 and set in the task
+
+        BaseType_t status = xTaskCreatePinnedToCore(&transport_task, "repl", 4096, &ready, 2, &taskReplHandle, 0);
+        printf("[main] start REPL task: status=%d\n", status);
+        assert(taskReplHandle != NULL);
+
+        // Wait for the REPL task to complete setup
+        while (!ready) { delay(1); }
+        printf("[main] REPL ready\n");
+    }
+
     // Start the App Process
     {
-        BaseType_t status = xTaskCreatePinnedToCore(&taskAppFunc, "app", 8192 * 8, NULL, 1, &taskAppHandle, 0);
+        BaseType_t status = xTaskCreatePinnedToCore(&taskAppFunc, 
+        "app", 8192 * 8, NULL, 1, &taskAppHandle, 0);
         printf("[main] init app task: status=%d\n", status);
         assert(taskAppHandle != NULL);
     }
@@ -351,7 +442,6 @@ void app_main() {
             uxTaskGetStackHighWaterMark(taskIoHandle),
             uxTaskGetStackHighWaterMark(taskAppHandle),
             portTICK_PERIOD_MS);
-
         delay(60000);
     }
 }

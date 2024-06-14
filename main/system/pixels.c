@@ -12,7 +12,7 @@
 
 #include "./utils.h"
 
-#define LED_COUNT     (1)
+#define LED_COUNT     (4)
 #define MAX_COLORS    (16)
 
 
@@ -24,7 +24,7 @@ typedef enum AnimationType {
 } AnimationType;
 
 typedef struct ColorRamp {
-    color_t colors[MAX_COLORS];
+    color_ffxt colors[MAX_COLORS];
     uint32_t count;
 } ColorRamp;
 
@@ -210,15 +210,15 @@ void pixels_tick(PixelsContext _context) {
     _PixelsContext *context = (_PixelsContext*)_context;
 
     uint32_t offset = 0;
-    for (uint32_t pixel = 0; pixel < LED_COUNT; pixel++) {
+    for (int32_t pixel = LED_COUNT - 1; pixel >= 0; pixel--) {
 
-        rgb24_t rgb = 0;
+        rgb24_ffxt rgb = 0;
         uint32_t repeat = 0;
         switch(context->type[pixel]) {
             case AnimationTypeNone:
                 break;
             case AnimationTypeStatic:
-                rgb = color_rgb24(context->colorRamps[pixel].colors[0]);
+                rgb = ffx_color_rgb24(context->colorRamps[pixel].colors[0]);
                 break;
             case AnimationTypeRepeat:
                 repeat = 1;
@@ -239,17 +239,17 @@ void pixels_tick(PixelsContext _context) {
 
                 uint32_t count = context->colorRamps[pixel].count;
                 uint32_t index = dt * (count - 1) / duration;
-                color_t c0 = context->colorRamps[pixel].colors[index];
-                color_t c1 = context->colorRamps[pixel].colors[(index + 1) % count];
+                color_ffxt c0 = context->colorRamps[pixel].colors[index];
+                color_ffxt c1 = context->colorRamps[pixel].colors[(index + 1) % count];
 
                 // @TODO: Lots of optimizations here. :)
                 int32_t chunk = duration / (count - 1);
 
                 //color_t color = color_lerpQuotient(c0, c1, elapsed, duration);
-                color_t color = color_lerpQuotient(c0, c1, dt - index * chunk, chunk);
+                color_ffxt color = ffx_color_lerpRatio(c0, c1, dt - index * chunk, chunk);
                 //printf("hue=%ld dt=%ld index=%ld\n", HSV_HUE(color), dt, index);
 
-                rgb = color_rgb24(color);
+                rgb = ffx_color_rgb24(color);
 
                 break;
             }
@@ -289,7 +289,7 @@ void pixels_free(PixelsContext _context) {
     free(_context);
 }
 
-void pixels_setColor(PixelsContext _context, uint32_t index, color_t color) {
+void pixels_setColor(PixelsContext _context, uint32_t index, color_ffxt color) {
     if (index >= LED_COUNT) { return; }
 
     _PixelsContext *context = (_PixelsContext*)_context;
@@ -298,7 +298,7 @@ void pixels_setColor(PixelsContext _context, uint32_t index, color_t color) {
     context->type[index] = AnimationTypeStatic;
 }
 
-void pixels_animateColor(PixelsContext _context, uint32_t index, color_t* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
+void pixels_animateColor(PixelsContext _context, uint32_t index, color_ffxt* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
     if (index >= LED_COUNT) { return; }
 
     _PixelsContext *context = (_PixelsContext*)_context;
