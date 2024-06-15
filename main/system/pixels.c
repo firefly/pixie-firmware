@@ -245,9 +245,7 @@ void pixels_tick(PixelsContext _context) {
                 // @TODO: Lots of optimizations here. :)
                 int32_t chunk = duration / (count - 1);
 
-                //color_t color = color_lerpQuotient(c0, c1, elapsed, duration);
                 color_ffxt color = ffx_color_lerpRatio(c0, c1, dt - index * chunk, chunk);
-                //printf("hue=%ld dt=%ld index=%ld\n", HSV_HUE(color), dt, index);
 
                 rgb = ffx_color_rgb24(color);
 
@@ -255,10 +253,26 @@ void pixels_tick(PixelsContext _context) {
             }
         }
 
+        uint32_t r, g, b;
+        if (rgb == 0) {
+            r = g = b = 0;
+
+        } else {
+            g = (rgb >> 8) & 0xff;
+            r = (rgb >> 16) & 0xff;
+            b = rgb & 0xff;
+
+            uint32_t t = g + r + b;
+
+            r = r * r / t;
+            g = g * g / t;
+            b = b * b / t;
+        }
+
         // WS2812 output pixels in GRB format
-        context->pixels[offset++] = (rgb >> 8) & 0xff;
-        context->pixels[offset++] = (rgb >> 16) & 0xff;
-        context->pixels[offset++] = rgb & 0xff;
+        context->pixels[offset++] = g;
+        context->pixels[offset++] = r;
+        context->pixels[offset++] = b;
     }
 
     // Broadcast the pixel data
