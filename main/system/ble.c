@@ -17,14 +17,14 @@
 #include "./utils.h"
 
 #define MANUFACTURER_NAME    ("Firefly")
-#define MODEL_NUMBER         ("Firefly DevKit (Pixie rev.5)")
+#define MODEL_NUMBER         ("Firefly DevKit (Pixie rev.6)")
 #define DEVICE_NAME          ("Firefly")
 
 
 typedef struct _TransportContext {
     MessageReceived onMessage;
-    uint32_t heartbeat;
-    uint16_t hrs_hrm_handle;
+    //uint32_t heartbeat;
+    uint16_t transmit_handle;
     uint16_t conn_handle;
 } _TransportContext;
 
@@ -111,21 +111,55 @@ static void ble_onReset(int reason) {
 
 
 // Heart-rate configuration
-#define GATT_HRS_UUID                           0x180D
-#define GATT_HRS_MEASUREMENT_UUID               0x2A37
-#define GATT_HRS_BODY_SENSOR_LOC_UUID           0x2A38
+//#define GATT_HRS_UUID                           0x180D
+//#define GATT_HRS_MEASUREMENT_UUID               0x2A37
+//#define GATT_HRS_BODY_SENSOR_LOC_UUID           0x2A38
+
+#define UUID_SVC_SPP                            (0xABF0)
+#define UUID_CHR_TRANSMIT                       (0xABF1)
 
 
-static int gatt_svr_chr_access_heart_rate(uint16_t conn_handle,
+static int ble_chrAccessTransmit(uint16_t conn_handle,
     uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
 
     // Sensor location, set to "Chest"
-    static uint8_t body_sens_loc = 0x01;
-    uint16_t uuid;
-    int rc;
+    //uint16_t uuid;
+    //int rc;
+    //uint16_t uuid = ble_uuid_u16(ctxt->chr->uuid);
 
-    uuid = ble_uuid_u16(ctxt->chr->uuid);
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR: {
+            MODLOG_DFLT(INFO, "Callback for read");
 
+            char buffer[] = "Hello";
+
+            int rc = os_mbuf_append(ctxt->om, &buffer, sizeof(buffer));
+
+            return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+
+        case BLE_GATT_ACCESS_OP_WRITE_CHR: {
+            MODLOG_DFLT(INFO, "Data received in write event,conn_handle = %x,attr_handle = %x", conn_handle, attr_handle);
+            uint16_t length = os_mbuf_len(ctxt->om);
+            uint8_t buffer[length];
+            os_mbuf_copydata(ctxt->om, 0, length, buffer);
+            printf("READ: ");
+            for (int i = 0; i < length; i++) {
+                printf("%02x", buffer[i]);
+                if ((i % 8) == 0) { printf(" "); }
+            }
+            printf("\n");
+
+            return 0;
+        }
+
+        default:
+            MODLOG_DFLT(INFO, "\nDefault Callback");
+            break;
+    }
+
+    return 0;
+/*
     if (uuid == GATT_HRS_BODY_SENSOR_LOC_UUID) {
         rc = os_mbuf_append(ctxt->om, &body_sens_loc, sizeof(body_sens_loc));
 
@@ -134,6 +168,7 @@ static int gatt_svr_chr_access_heart_rate(uint16_t conn_handle,
 
     assert(0);
     return BLE_ATT_ERR_UNLIKELY;
+*/
 }
 
 static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
@@ -222,7 +257,7 @@ int gatt_server_init(const struct ble_gatt_svc_def *services) {
 
 static bool notify_state;
 
-static int blehr_gap_event(struct ble_gap_event *event, void *arg);
+static int ble_gap_event(struct ble_gap_event *event, void *arg);
 
 
 static void ble_advertise(void *context) {
@@ -265,7 +300,7 @@ static void ble_advertise(void *context) {
     // Begin advertising
     {
         int rc = ble_gap_adv_start(blehr_addr_type, NULL, BLE_HS_FOREVER,
-          &adv_params, blehr_gap_event, context);
+          &adv_params, ble_gap_event, context);
 
         if (rc != 0) {
             MODLOG_DFLT(ERROR, "error enabling advertisement; rc=%d\n", rc);
@@ -275,6 +310,7 @@ static void ble_advertise(void *context) {
 }
 
 // This function simulates heart beat and notifies it to the client
+/*
 static void blehr_tx_hrate(TimerHandle_t ev) {
     static uint8_t hrm[2];
     int rc;
@@ -301,8 +337,9 @@ static void blehr_tx_hrate(TimerHandle_t ev) {
 
     assert(rc == 0);
 }
+*/
 
-static int blehr_gap_event(struct ble_gap_event *event, void *_context) {
+static int ble_gap_event(struct ble_gap_event *event, void *_context) {
     _TransportContext *context = (_TransportContext*)_context;
 
     switch (event->type) {
@@ -334,11 +371,11 @@ static int blehr_gap_event(struct ble_gap_event *event, void *_context) {
         case BLE_GAP_EVENT_SUBSCRIBE:
             MODLOG_DFLT(INFO, "subscribe event; cur_notify=%d\n value handle; "
                         "val_handle=%d\n",
-                        event->subscribe.cur_notify, context->hrs_hrm_handle);
-            if (event->subscribe.attr_handle == context->hrs_hrm_handle) {
+                        event->subscribe.cur_notify, context->transmit_handle);
+            if (event->subscribe.attr_handle == context->transmit_handle) {
                 notify_state = event->subscribe.cur_notify;
                 //blehr_tx_hrate_reset();
-            } else if (event->subscribe.attr_handle != context->hrs_hrm_handle) {
+            } else if (event->subscribe.attr_handle != context->transmit_handle) {
                 notify_state = event->subscribe.cur_notify;
                 //blehr_tx_hrate_stop();
             }
@@ -367,7 +404,7 @@ void ble_runTask() {
 
     printf("[ble] BLE Host Task Stopped\n");
 }
-
+/*
 #define RW(v)      ((((v) + 3)) / 4)
 
 typedef struct BleCounts {
@@ -468,25 +505,32 @@ static ble_gatt_svc_def* ble_copyServices(void* data, size_t length, ble_gatt_sv
         }
     }
 }
-
+*/
 
 void transport_task(void* pvParameter) {
     initSyncCallback();
 
     _TransportContext context;
     //context->onMessage = onMessage;
-    context.hrs_hrm_handle = 0;
+    context.transmit_handle = 0;
 
     const struct ble_gatt_svc_def services[] = {
         {
             // Service: Heart-rate
             .type = BLE_GATT_SVC_TYPE_PRIMARY,
-            .uuid = BLE_UUID16_DECLARE(GATT_HRS_UUID),
+            //.uuid = BLE_UUID16_DECLARE(GATT_HRS_UUID),
+            .uuid = BLE_UUID16_DECLARE(UUID_SVC_SPP),
             .characteristics = (struct ble_gatt_chr_def[])
             { {
                     // Characteristic: Heart-rate measurement
+                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_TRANSMIT),
+                    .access_cb = ble_chrAccessTransmit,
+                    .val_handle = &context.transmit_handle,
+                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+/*
+                    // Characteristic: Heart-rate measurement
                     .uuid = BLE_UUID16_DECLARE(GATT_HRS_MEASUREMENT_UUID),
-                    .access_cb = gatt_svr_chr_access_heart_rate,
+                    .access_cb = ble_chrAccessTransmit,
                     .val_handle = &context.hrs_hrm_handle,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 }, {
@@ -494,6 +538,7 @@ void transport_task(void* pvParameter) {
                     .uuid = BLE_UUID16_DECLARE(GATT_HRS_BODY_SENSOR_LOC_UUID),
                     .access_cb = gatt_svr_chr_access_heart_rate,
                     .flags = BLE_GATT_CHR_F_READ,
+*/
                 }, {
                     0, // No more characteristics in this service
                 },
@@ -547,7 +592,7 @@ void transport_task(void* pvParameter) {
         }
     }
 
-    printf("MOO: %d %d %d %d\n", ble_computeLength(services), sizeof(struct ble_gatt_svc_def), sizeof(struct ble_gatt_chr_def), sizeof(ble_uuid128_t));
+    //printf("MOO: %d %d %d %d\n", ble_computeLength(services), sizeof(struct ble_gatt_svc_def), sizeof(struct ble_gatt_chr_def), sizeof(ble_uuid128_t));
 
     // Initialize the NimBLE host configuration
     ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
@@ -559,8 +604,8 @@ void transport_task(void* pvParameter) {
     onSync(ble_advertise, &context);
 
     // name, period/time,  auto reload, timer ID, callback
-    TimerHandle_t blehr_tx_timer = xTimerCreate("blehr_tx_timer", pdMS_TO_TICKS(1000), pdTRUE, &context, blehr_tx_hrate);
-    xTimerStart(blehr_tx_timer, 0);
+    //TimerHandle_t blehr_tx_timer = xTimerCreate("blehr_tx_timer", pdMS_TO_TICKS(1000), pdTRUE, &context, blehr_tx_hrate);
+    //xTimerStart(blehr_tx_timer, 0);
 
     assert(gatt_server_init(services) == 0);
 
