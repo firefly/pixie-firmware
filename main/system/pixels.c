@@ -21,24 +21,40 @@ typedef enum AnimationType {
     AnimationTypeNormal  = 1,
     AnimationTypeRepeat  = 2,
     AnimationTypeStatic  = 3,
+    //AnimationTypeFill  = , // @TODO
 } AnimationType;
 
+/*
 typedef struct ColorRamp {
     color_ffxt colors[MAX_COLORS];
     uint32_t count;
 } ColorRamp;
+*/
+
+typedef struct Action {
+    PixelAnimationFunc func;
+    void *arg;
+
+    uint32_t startTime;
+    uint32_t duration;
+
+    AnimationType type;
+} Action;
 
 typedef struct _PixelsContext {
     rmt_channel_handle_t channel;
     rmt_encoder_handle_t encoder;
 
-    uint8_t pixels[LED_COUNT * 3];
+    Action *actions;
+    color_ffxt *colors;
+    uint8_t *pixels;
 
-    ColorRamp colorRamps[LED_COUNT];
+    uint32_t tick;
 
-    uint32_t startTime[LED_COUNT];
-    uint32_t duration[LED_COUNT];
-    AnimationType type[LED_COUNT];
+    size_t pixelCount;
+
+    // If non-zero then pixels[0] is animating all pixels
+    uint32_t animatePixels;
 } _PixelsContext;
 
 
@@ -175,10 +191,22 @@ err:
 }
 
 
-PixelsContext pixels_init(uint32_t pin) {
+PixelsContext pixels_init(size_t pixelCount, uint32_t pin) {
 
     _PixelsContext *context = malloc(sizeof(_PixelsContext));
     memset(context, 0, sizeof(_PixelsContext));
+
+    context->pixelCount = pixelCount;
+
+    context->pixels = malloc(3 * pixelCount);
+
+    // @TODO: if malloc failes return NULL
+
+    context->actions = malloc(sizeof(Action) * pixelCount);
+    memset(context->actions, 0, sizeof(Action) * pixelCount);
+
+    context->colors = malloc(sizeof(color_ffxt) * pixelCount);
+    memset(context->colors, 0, sizeof(color_ffxt) * pixelCount);
 
     // Configure the channel; ESP32-C3 only has a software channel
     rmt_tx_channel_config_t tx_chan_config = {
@@ -201,57 +229,65 @@ PixelsContext pixels_init(uint32_t pin) {
     return context;
 }
 
-// linear-interpolation used for color bytes in tick
-//uint8_t lerp(int32_t a, int32_t b, int32_t top, int32_t bottom) {
-//    return ((top * a) / bottom) + (((bottom - top) * b) / bottom);
-//}
+static void computeColor(color_ffxt *colors, uint32_t count,
+  Action *action, uint32_t now) {
 
-void pixels_tick(PixelsContext _context) {
-    _PixelsContext *context = (_PixelsContext*)_context;
-
-    uint32_t offset = 0;
-    for (int32_t pixel = LED_COUNT - 1; pixel >= 0; pixel--) {
-
-        rgb24_ffxt rgb = 0;
-        uint32_t repeat = 0;
-        switch(context->type[pixel]) {
-            case AnimationTypeNone:
-                break;
-            case AnimationTypeStatic:
-                rgb = ffx_color_rgb24(context->colorRamps[pixel].colors[0]);
-                break;
-            case AnimationTypeRepeat:
-                repeat = 1;
-                // ...falls through
-            case AnimationTypeNormal: {
-                uint32_t dt = ticks() - context->startTime[pixel];
-                uint32_t duration = context->duration[pixel];
-                if (dt > duration) {
-                    // Normal animations stop after duration
-                    if (!repeat) {
-                        context->type[pixel] = AnimationTypeNone;
-                        break;
-                    }
-
-                    // Repeat animations restart offset from the overlap
-                    dt = dt % duration;
+    uint32_t repeat = 0;
+    switch(action->type) {
+        case AnimationTypeNone:
+            colors[0] = 0;
+            break;
+        case AnimationTypeStatic:
+            //colors[0] = action->color;
+            break;
+        case AnimationTypeRepeat:
+            repeat = 1;
+            // ...falls through
+        case AnimationTypeNormal: {
+            uint32_t dt = now - action->startTime;
+            uint32_t duration = action->duration;
+            if (dt > duration) {
+            // @TODO: this can be made much more logical
+                // Normal animations stop after duration
+                if (!repeat) {
+                    action->type = AnimationTypeNone;
+                    action->func(colors, count, FM_1, action->arg);
+                    break;
                 }
 
-                uint32_t count = context->colorRamps[pixel].count;
-                uint32_t index = dt * (count - 1) / duration;
-                color_ffxt c0 = context->colorRamps[pixel].colors[index];
-                color_ffxt c1 = context->colorRamps[pixel].colors[(index + 1) % count];
-
-                // @TODO: Lots of optimizations here. :)
-                int32_t chunk = duration / (count - 1);
-
-                color_ffxt color = ffx_color_lerpRatio(c0, c1, dt - index * chunk, chunk);
-
-                rgb = ffx_color_rgb24(color);
-
-                break;
+                // Repeat animations restart offset from the overlap
+                dt = dt % duration;
             }
+
+            action->func(colors, count, ratiofx(dt, duration), action->arg);
+
+            break;
         }
+    }
+}
+
+void pixels_tick(PixelsContext _context) {
+    uint32_t now = ticks();
+
+    _PixelsContext *context = (_PixelsContext*)_context;
+    context->tick = now;
+
+    color_ffxt colors[LED_COUNT];
+
+    if (context->animatePixels) {
+        computeColor(colors, 4, &context->actions[0], now);
+    } else {
+        for (int32_t pixel = 0; pixel < LED_COUNT; pixel++) {
+            computeColor(&colors[pixel], 1, &context->actions[pixel], now);
+        }
+    }
+
+    uint8_t *pixels = context->pixels;
+
+    uint32_t offset = 0;
+    for (int32_t pixel = 0; pixel < LED_COUNT; pixel++) {
+
+        rgb24_ffxt rgb = ffx_color_rgb24(colors[pixel]);
 
         uint32_t r, g, b;
         if (rgb == 0) {
@@ -264,26 +300,31 @@ void pixels_tick(PixelsContext _context) {
 
             uint32_t t = g + r + b;
 
+            // Normalize the brightness to the euqivalent of a
+            // single LED at maximum brightness
+
             r = r * r / t;
             g = g * g / t;
             b = b * b / t;
         }
 
         // WS2812 output pixels in GRB format
-        context->pixels[offset++] = g;
-        context->pixels[offset++] = r;
-        context->pixels[offset++] = b;
+        pixels[offset++] = g;
+        pixels[offset++] = r;
+        pixels[offset++] = b;
     }
 
-    // Broadcast the pixel data
-    rmt_transmit_config_t tx_config = {
-        .loop_count = 0, // no transfer loop
-    };
-    ESP_ERROR_CHECK(rmt_transmit(context->channel, context->encoder, context->pixels, LED_COUNT * 3, &tx_config));
+    // Broadcast the pixel data (no transfer loop)
+    rmt_transmit_config_t tx_config = { .loop_count = 0 };
+    ESP_ERROR_CHECK(rmt_transmit(context->channel, context->encoder, pixels, LED_COUNT * 3, &tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(context->channel, portMAX_DELAY));
-}
 
-void pixels_postTick() {
+    // @TODO: If necessary, move the pixels into the Context (so they are
+    //        are safe from stack reclaimation), and do the wait_all at
+    //        the top of this function to ensure the previous tx is complete.
+    //        This allows the tx to be completed async while other operations
+    //        within the IO task execute.
+    //        Quick tests showed that it is 0 anyways though
 }
 
 void pixels_free(PixelsContext _context) {
@@ -300,32 +341,41 @@ void pixels_free(PixelsContext _context) {
         free(led_encoder);
     }
 
+    free(context->pixels);
+    free(context->actions);
+    free(context->colors);
+
     free(_context);
 }
 
-void pixels_setColor(PixelsContext _context, uint32_t index, color_ffxt color) {
-    if (index >= LED_COUNT) { return; }
-
+void pixels_setPixel(PixelsContext _context, uint32_t pixel, color_ffxt color) {
     _PixelsContext *context = (_PixelsContext*)_context;
-    context->colorRamps[index].colors[0] = color;
-    context->colorRamps[index].count = 1;
-    context->type[index] = AnimationTypeStatic;
+
+    if (pixel >= context->pixelCount) { return; }
+
+    context->animatePixels = 0;
+
+    context->colors[pixel] = color;
+
+    context->actions[pixel].func = NULL;
+    context->actions[pixel].type = AnimationTypeStatic;
 }
 
-void pixels_animateColor(PixelsContext _context, uint32_t index, color_ffxt* colorRamp, uint32_t colorCount, uint32_t duration, uint32_t repeat) {
-    if (index >= LED_COUNT) { return; }
+void pixels_animatePixel(PixelsContext _context, uint32_t pixel,
+  PixelAnimationFunc pixelFunc, uint32_t duration, uint32_t repeat,
+  void *arg) {
 
     _PixelsContext *context = (_PixelsContext*)_context;
 
-    // Set up the color ramp
-    if (colorCount > MAX_COLORS) { colorCount = MAX_COLORS; }
+    if (pixel >= context->pixelCount) { return; }
 
-    context->colorRamps[index].count = colorCount;
-    for (uint32_t i = 0; i < colorCount; i++) {
-        context->colorRamps[index].colors[i] = colorRamp[i];
-    }
+    context->animatePixels = 0;
 
-    context->startTime[index] = ticks();
-    context->duration[index] = duration;
-    context->type[index] = repeat ? AnimationTypeRepeat: AnimationTypeNormal;
+    context->actions[pixel].func = pixelFunc;
+    context->actions[pixel].arg = arg;
+
+    context->actions[pixel].duration = duration;
+    context->actions[pixel].startTime = context->tick;
+
+    context->actions[pixel].type = repeat ? AnimationTypeRepeat: AnimationTypeNormal;
 }
