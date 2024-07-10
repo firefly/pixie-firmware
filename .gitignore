@@ -1,7 +1,8 @@
-build/**
+**/build/**
 obsolete/**
 
 sdkconfig.ci
 sdkconfig.old
+dependencies.lock
 
 **/*.swp
