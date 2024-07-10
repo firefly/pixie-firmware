@@ -1,0 +1,12 @@
+# ESP-IDF Partition Table
+# https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/partition-tables.html
+# Name,   Type, SubType, Offset,  Size, Flags
+
+attest,    data,   nvs,      0x009000,   0x007000
+factory,   app,    factory,  0x010000,   0x700000,
+nvs,       data,   nvs,      0xf00000,   0x100000,
+
+#attest,     data, nvs,     0x9000,  0x3000, readonly
+#nvs,        data, nvs,     0xc000,  0x3000,
+#phy_init,   data, phy,     0xf000,  0x1000,
+#factory,    app,  factory, 0x10000, 8M,
