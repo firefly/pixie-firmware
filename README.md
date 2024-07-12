@@ -1,5 +1,14 @@
-Firefly Pixie
-=============
+Firefly Pixie: Firmware
+=======================
+
+This is early prototype firmware to help design and refine the
+Firefly SDK.
+
+It currently amounts to little more than a clone of Space Invaders,
+but has many of the necessary API to implement a hardware wallet.
+
+- [Device](https://github.com/firefly/pixie-device) Design, Schematics and PCB
+- [Case](https://github.com/firefly/pixie-case)
 
 
 Hardware Specifications
