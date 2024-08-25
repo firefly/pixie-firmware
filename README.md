@@ -18,7 +18,7 @@ Development
 
 2. Build the firmware
    ```sh
-     git clone https://github.com/yuetloo/pixie-firmware.git
+     git clone https://github.com/firefly/pixie-firmware.git
      git checkout v0.0.1
      cd pixie-firmware
      docker run --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
