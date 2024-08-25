@@ -2,8 +2,6 @@ dependencies:
   idf:
     version: ">=4.1.0"
 
-  firefly-display:
-    path: ../../firefly-display
+  firefly/display: "^0.0.1"
 
-  firefly-scene:
-    path: ../../firefly-scene
+  firefly/scene: "^0.0.1"
