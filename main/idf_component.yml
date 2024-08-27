@@ -3,7 +3,7 @@ dependencies:
     version: ">=4.1.0"
 
   firefly-display:
-    path: ../../firefly-display
+    path: ../components/firefly-display
 
   firefly-scene:
-    path: ../../firefly-scene
+    path: ../components/firefly-scene
