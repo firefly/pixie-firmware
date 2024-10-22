@@ -12,14 +12,14 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-#include "./ble.h"
-#include "./build-defs.h"
-#include "./utils.h"
+#include "./task-ble.h"
+#include "./system/build-defs.h"
+#include "./system/utils.h"
+
 
 #define MANUFACTURER_NAME    ("Firefly")
 #define MODEL_NUMBER         ("Firefly DevKit (Pixie rev.6)")
 #define DEVICE_NAME          ("Firefly")
-
 
 typedef struct _TransportContext {
     MessageReceived onMessage;
@@ -27,7 +27,6 @@ typedef struct _TransportContext {
     uint16_t transmit_handle;
     uint16_t conn_handle;
 } _TransportContext;
-
 
 // Utility function to log an array of bytes.
 void print_bytes(const uint8_t *bytes, int len) {
@@ -81,7 +80,7 @@ uint32_t onSync(SyncCallback callback, void *context) {
     return xQueueSend(syncQueue, &pending, 100);
 }
 
-static void ble_onSync(void) {
+static void _onSync(void) {
     int rc;
 
     rc = ble_hs_id_infer_auto(0, &blehr_addr_type);
@@ -97,7 +96,7 @@ static void ble_onSync(void) {
     drainSyncQueue();
 }
 
-static void ble_onReset(int reason) {
+static void _onReset(int reason) {
     isSync = 0;
     printf("[ble] reset=%d\n", reason);
 }
@@ -118,6 +117,24 @@ static void ble_onReset(int reason) {
 #define UUID_SVC_SPP                            (0xABF0)
 #define UUID_CHR_TRANSMIT                       (0xABF1)
 
+// FIDO2 secure client-to-authenticator transport Service
+// See: 3.10 - SDO Services (https://www.bluetooth.com/specifications/assigned-numbers/)
+//#define UUID_SVC_FIDO  (0xFFF9)
+
+// Universal Second Factor Authenticator Service
+// See: 3.10 - SDO Services (https://www.bluetooth.com/specifications/assigned-numbers/)
+#define UUID_SVC_U2F  (0xFFFD)
+
+// See: https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#ble
+#define UUID_CHR_FIDO_CONTROL_POINT \
+  "F1D0FFF1-DEAA- ECEE-B42F- C9BA7ED623BB"
+#define UUID_CHR_FIDO_STATUS \
+  "F1D0FFF2-DEAA- ECEE-B42F- C9BA7ED623BB"
+#define UUID_CHR_FIDO_CONTROL_POINT_LENGTH \
+  "F1D0FFF3-DEAA- ECEE-B42F- C9BA7ED623BB"
+#define UUID_CHR_FIDO_SERVICE_REVISION_BITFIELD \
+  "F1D0FFF4-DEAA- ECEE-B42F- C9BA7ED623BB"
+#define UUID_CHR_SERVICE_REVISION (0x2A28)
 
 static int ble_chrAccessTransmit(uint16_t conn_handle,
     uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -507,7 +524,9 @@ static ble_gatt_svc_def* ble_copyServices(void* data, size_t length, ble_gatt_sv
 }
 */
 
-void transport_task(void* pvParameter) {
+void taskBleFunc(void* pvParameter) {
+    uint32_t *ready = (uint32_t*)pvParameter;
+
     initSyncCallback();
 
     _TransportContext context;
@@ -598,8 +617,8 @@ void transport_task(void* pvParameter) {
     ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
     ble_hs_cfg.gatts_register_arg = &context;
 
-    ble_hs_cfg.sync_cb = ble_onSync;
-    ble_hs_cfg.reset_cb = ble_onReset;
+    ble_hs_cfg.sync_cb = _onSync;
+    ble_hs_cfg.reset_cb = _onReset;
 
     onSync(ble_advertise, &context);
 
@@ -615,6 +634,9 @@ void transport_task(void* pvParameter) {
 
     // Run forever
     nimble_port_freertos_init(ble_runTask);
+
+    // Unblock the bootstrap task
+    *ready = 1;
 
     while (1) {
         delay(1000);

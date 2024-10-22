@@ -13,7 +13,7 @@
 #include "crypto/keccak256.h"
 #include "crypto/ecc.h"
 
-#include "system/ble.h"
+#include "task-ble.h"
 //#include "system/color.h"
 //#include "system/curves.h"
 #include "system/device-info.h"
@@ -99,7 +99,7 @@
 #define FRAME_DELAY_HI     ((FRAME_DELAY_LO) + 1)
 
 static TaskHandle_t taskIoHandle = NULL;
-static TaskHandle_t taskReplHandle = NULL;
+static TaskHandle_t taskBleHandle = NULL;
 static TaskHandle_t taskAppHandle = NULL;
 
 static const fixed_ffxt FM_1_2    =     0x8000;
@@ -816,32 +816,6 @@ void taskIoFunc(void* pvParameter) {
     }
 }
 
-void taskReplFunc(void* pvParameter) {
-
-    // No need to block init while bringing the REPL service online
-    uint32_t *ready = (uint32_t*)pvParameter;
-    *ready = 1;
-
-    ble_init();
-
-    uint8_t buffer[256];
-    memset(buffer, 0, sizeof(buffer));
-
-    while (1) {
-    /*
-        int length = usb_serial_jtag_read_bytes(buffer, (BUF_SIZE - 1), 10);
-
-        if (length > 0) {
-            buffer[length] = 0;
-            //usb_serial_jtag_write_bytes((const char *) data, len, 20 / portTICK_PERIOD_MS);
-            printf("ECHO: (%d) %s\n", length, buffer);
-            //continue;
-        }
-*/
-        delay(1000);
-    }
-}
-
 void taskAppFunc(void* pvParameter) {
     while (1) {
         printf("Hello from App\n");
@@ -893,6 +867,7 @@ void taskAppFunc(void* pvParameter) {
 void app_main() {
     printf("Hello world!\n");
 
+    // Load NVS and eFuse provision data
     device_init();
 
     // Start the IO task (handles the display, LEDs and keypad)
@@ -911,18 +886,16 @@ void app_main() {
 
     // Start the Command task (handles Serial REPL)
     {
-        device_init();
-
         // Pointer passed to taskReplFunc to notify us when REPL is ready
-        uint32_t ready = 1; // @TODO: set this to 0 and set in the task
+        uint32_t ready = 0; // @TODO: set this to 0 and set in the task
 
-        BaseType_t status = xTaskCreatePinnedToCore(&transport_task, "repl", 4096, &ready, 2, &taskReplHandle, 0);
-        printf("[main] start REPL task: status=%d\n", status);
-        assert(taskReplHandle != NULL);
+        BaseType_t status = xTaskCreatePinnedToCore(&taskBleFunc, "ble", 4096, &ready, 2, &taskBleHandle, 0);
+        printf("[main] start BLE task: status=%d\n", status);
+        assert(taskBleHandle != NULL);
 
         // Wait for the REPL task to complete setup
         while (!ready) { delay(1); }
-        printf("[main] REPL ready\n");
+        printf("[main] BLE ready\n");
     }
 
     // Start the App Process
