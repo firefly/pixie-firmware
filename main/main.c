@@ -36,8 +36,6 @@
 
 #define BOARD_REV         (5)
 
-#define VERSION           (0x00000101)
-
 #if BOARD_REV == 2
 
 // The rev.2 board used the CS0 pin for the display. The rev.3
@@ -868,7 +866,11 @@ void app_main() {
     printf("Hello world!\n");
 
     // Load NVS and eFuse provision data
-    device_init();
+    {
+        DeviceStatus status = device_init();
+        printf("[main] device initialized: status=%d serial=%ld model=%ld\n",
+          status, device_serialNumber(), device_modelNumber());
+    }
 
     // Start the IO task (handles the display, LEDs and keypad)
     {
