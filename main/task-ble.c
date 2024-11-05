@@ -13,36 +13,46 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+#include "crypto/sha2.h"
 #include "./task-ble.h"
-#include "./task-ble-gamepad.h"
 #include "./system/build-defs.h"
 #include "./system/device-info.h"
 #include "./system/utils.h"
+#include "./utils/cbor.h"
 
 typedef struct Payload {
     size_t length;
     uint8_t *data;
 } Payload;
 
+// 16kb
+#define MAX_MESSAGE_SIZE        (1 << 14)
+
 #define STATE_CONNECTED         (1 << 0)
 #define STATE_SUBSCRIBED        (1 << 1)
 #define STATE_ENCRYPTED         (1 << 2)
 typedef struct Connection {
     uint32_t state;
+
+    uint8_t address[6];
+    uint8_t own_addr_type;
+
     uint16_t conn_handle;
-    uint16_t input_handle;
+    uint16_t content;
+    uint16_t logger;
     uint16_t battery_handle;
+
+    // The buffer to hold an incoming message
+    uint8_t msg[MAX_MESSAGE_SIZE];
+
+    // Next expected offset for the incoming message
+    size_t msgOffset;
+
+    // Total expected message size
+    size_t msgLen;
 } Connection;
 
 static Connection connection = { 0 };
-
-/*
-static void print_bytes(const uint8_t *bytes, int len) {
-    for (int i = 0; i < len; i++) {
-        MODLOG_DFLT(INFO, "%s0x%02x", i != 0 ? ":" : "", bytes[i]);
-    }
-}
-*/
 
 static void print_addr(const char *prefix, const void *addr) {
     const uint8_t *u8p = addr;
@@ -50,22 +60,22 @@ static void print_addr(const char *prefix, const void *addr) {
       u8p[5], u8p[4], u8p[3], u8p[2], u8p[1], u8p[0]);
 }
 
+static void dumpBuffer(char *header, uint8_t *buffer, size_t length) {
+    printf("%s (length=%d)", header, length);
+    for (int i = 0; i < length; i++) {
+        if ((i % 16) == 0) { printf("\n    "); }
+        printf("%02x", buffer[i]);
+        if ((i % 4) == 3) { printf("  "); }
+        //if ((i % 16) == 7) { printf("  "); }
+        //if ((i % 16) == 11) { printf("  "); }
+    }
+    printf("\n");
+}
 
-//#define VENDOR_ID       (0x5432)
-//#define PRODUCT_ID      (0x0001)
-//#define PRODUCT_VERSION (0x0006)
-
-// MUST fake this!!
-// Browsers will ignore us if we aren't an officially supported device,
-// in this case a Sony Playstation Dual Shock 4 controller
-#define VENDOR_ID       (0x054c)
-#define PRODUCT_ID      (0x054c)
-#define PRODUCT_VERSION (0x0111)
-
-// https://developer.nordicsemi.com/nRF5_SDK/nRF51_SDK_v4.x.x/doc/html/group___b_l_e___a_p_p_e_a_r_a_n_c_e_s.html
-//#define APPEARANCE_KEYRING                          (576)
-#define APPEARANCE_GAMEPAD                          (0x03C4)
-
+// SIG membership pending...
+#define VENDOR_ID       (0x5432)
+#define PRODUCT_ID      (0x0001)
+#define PRODUCT_VERSION (0x0006)
 
 // Device Information Service
 // https://www.bluetooth.com/specifications/specs/device-information-service-1-1/
@@ -75,61 +85,55 @@ static void print_addr(const char *prefix, const void *addr) {
 #define UUID_CHR_FIRMWARE_REVISION_STRING           (0x2A26)
 #define UUID_CHR_PNP                                (0x2A50)
 
-
 // Battery Service
 #define UUID_SVC_BATTERY_LEVEL                      (0x180f)
 #define UUID_CHR_BATTERY_LEVEL                      (0x2a19)
 #define UUID_DSC_BATTERY_LEVEL                      (0x2904)
 
-// FIDO2 secure client-to-authenticator transport Service
-// See: 3.10 - SDO Services (https://www.bluetooth.com/specifications/assigned-numbers/)
-//#define UUID_SVC_FIDO  (0xFFF9)
-
-// Universal Second Factor Authenticator Service
-// See: 3.10 - SDO Services (https://www.bluetooth.com/specifications/assigned-numbers/)
-#define UUID_SVC_U2F  (0xFFFD)
-
-// See: https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#ble
-
-// F1D0FFF1-DEAA-ECEE-B42F-C9BA7ED623BB
-#define UUID_CHR_U2F_CONTROL_POINT (BLE_UUID128_DECLARE( \
-    0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4,      \
-    0xee, 0xec, 0xaa, 0xde, 0xf1, 0xff, 0xd0, 0xf1       \
-))
-
-// F1D0FFF2-DEAA-ECEE-B42F-C9BA7ED623BB
-#define UUID_CHR_U2F_STATUS (BLE_UUID128_DECLARE(   \
-    0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4, \
-    0xee, 0xec, 0xaa, 0xde, 0xf2, 0xff, 0xd0, 0xf1  \
-))
-
-// F1D0FFF3-DEAA-ECEE-B42F-C9BA7ED623BB
-#define UUID_CHR_U2F_CONTROL_POINT_LENGTH (BLE_UUID128_DECLARE( \
-    0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4,             \
-    0xee, 0xec, 0xaa, 0xde, 0xf3, 0xff, 0xd0, 0xf1              \
-))
-
-// F1D0FFF4-DEAA-ECEE-B42F-C9BA7ED623BB
-#define UUID_CHR_U2F_SERVICE_REVISION_BITFIELD (BLE_UUID128_DECLARE( \
-    0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4,                  \
-    0xee, 0xec, 0xaa, 0xde, 0xf4, 0xff, 0xd0, 0xf1                   \
-))
-
-#define UUID_CHR_U2F_SERVICE_REVISION (BLE_UUID16_DECLARE(0x2A28))
-
-
-// Gamepad HID
-#define UUID_SVC_HID                                (0x1812)
-#define UUID_CHR_HID_INFO                           (0x2a4a)
-#define UUID_CHR_HID_REPORT_MAP                     (0x2a4b)
-#define UUID_CHR_HID_CONTROL_POINT                  (0x2a4c)
-#define UUID_CHR_HID_PROTOCOL_MODE                  (0x2a4e)
-
-#define UUID_CHR_HID_REPORT                         (0x2a4d)
-#define UUID_DSC_HID_REPORT                         (0x2908)
-
-
 // Firefly Serial Protocol
+// UUID: https://github.com/espressif/esp-idf/blob/master/examples/bluetooth/nimble/ble_spp/spp_server/main/ble_spp_server.h#L19
+#define UUID_SVC_FSP                                (0xabf0)
+#define UUID_CHR_FSP_CONTENT                        (0xabf1)
+#define UUID_CHR_FSP_LOGGER                         (0xabf2)
+
+#define CMD_QUERY                                   (0b0001)
+#define CMD_RESET                                   (0b0100)
+#define CMD_START_MESSAGE                           (0b0110)
+#define CMD_CONTINUE_MESSAGE                        (0b0111)
+
+#define ERROR_UNKNOWN                               (0b1000)
+#define ERROR_UNSUPPORTED_VERSION                   (0b1001)
+#define ERROR_BAD_COMMAND                           (0b1010)
+#define ERROR_BUFFER_OVERRUN                        (0b1011)
+#define ERROR_MISSING_MESSAGE                       (0b1100)
+#define ERROR_BAD_CHECKSUM                          (0b1101)
+
+
+static int notify(uint16_t handle, uint8_t *data, size_t length) {
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(data, length);
+    //int rc = ble_gatts_notify_custom(connection.conn_handle, handle, om);
+    int rc = ble_gatts_indicate_custom(connection.conn_handle, handle, om);
+    if (rc) { printf("[ble] indicate fail: handle=%d rc=%d\n", handle, rc); }
+    return rc;
+}
+
+static void processMessage() {
+    dumpBuffer("Process Message", connection.msg, connection.msgLen);
+
+    uint64_t value;
+
+    CborCursor cursor;
+    cbor_init(&cursor, connection.msg, connection.msgLen);
+
+    CborStatus status = cbor_followKey(&cursor, "test");
+    printf("S: status=%d\n", status);
+    status = cbor_getValue(&cursor, &value);
+    printf("S: status=%d\n", status);
+    printf("  value=%lld err=%d\n", value, status);
+
+    connection.msgOffset = 0;
+    connection.msgLen = 0;
+}
 
 // @TODO: Renamte to gattAccess
 static int _gattAccess(uint16_t conn_handle, uint16_t attr_handle,
@@ -153,50 +157,200 @@ static int _gattAccess(uint16_t conn_handle, uint16_t attr_handle,
     }
 
     if (isWrite) {
-        uint16_t length = os_mbuf_len(ctx->om);
-        uint8_t buffer[length];
-        os_mbuf_copydata(ctx->om, 0, length, buffer); // @TODO: Check result
 
-        printf("received uuid=%04x length=%d data=0x", uuid, length);
-        for (int i = 0; i < length; i++) {
-            printf("%02x", buffer[i]);
-            if ((i % 8) == 0) { printf(" "); }
+        ////////////////////
+        // Write operation (host-to-device)
+
+        // @TODO: Check that length doesn't exceed 512 bytes
+
+        uint16_t length = os_mbuf_len(ctx->om);
+        uint8_t req[length];
+        int rc = os_mbuf_copydata(ctx->om, 0, length, req);
+        if (rc) { printf("[ble] write fail: rc=%d\n", rc); }
+
+        // Response; maximum length is 13 bytes (include space for hash)
+        uint8_t resp[33] = { 0 };
+        size_t respLen = 1;
+
+        do {
+            // Error copying request
+            if (rc) {
+                resp[0] = (ERROR_UNKNOWN << 4);
+                break;
+            }
+
+            // No data to work with at all
+            if (length < 1) {
+                resp[0] = (ERROR_BUFFER_OVERRUN << 4);
+                break;
+            }
+
+            resp[0] = req[0];
+            // @TODO: Check seqno is the expected value
+
+            uint8_t cmd = req[0] >> 4;
+            uint8_t seqno = req[0] & 0x0f;
+
+            if (cmd == CMD_QUERY) {
+                // Missing version parameter
+                if (length < 2) {
+                    resp[0] = (ERROR_BUFFER_OVERRUN << 4) | seqno;
+                    break;
+                }
+
+                // Only support version 1
+                int version = req[1];
+                if (version != 0x01) {
+                    resp[0] = (ERROR_UNSUPPORTED_VERSION << 4) | seqno;
+                    break;
+                }
+
+                // OK
+                resp[1] = 0x01;
+                resp[2] = connection.msgOffset >> 8;
+                resp[3] = connection.msgOffset & 0xff;
+                respLen = 4;
+
+            } else if (cmd == CMD_RESET) {
+                connection.msgOffset = 0;
+                connection.msgLen = 0;
+
+            } else if (cmd == CMD_START_MESSAGE) {
+
+                // Missing length parameter
+                if (length < 3) {
+                    resp[0] = (ERROR_BUFFER_OVERRUN << 4) | seqno;
+                    break;
+                }
+
+                uint16_t msgLen = (req[1] << 8) | req[2];
+
+                if (msgLen > 509) {
+                    // The message could consume entire req but did not
+                    if (length < 1 + 2 + 509) {
+                        resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                        break;
+                    }
+                } else {
+                    // The message can fit in the req but was not
+                    if (msgLen == 0 || length != 1 + 2 + msgLen) {
+                        resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                        break;
+                    }
+                }
+
+                // A message is already started
+                if (connection.msgOffset != 0) {
+                    resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                    break;
+                }
+
+                // Update the message
+                connection.msgLen = msgLen;
+                connection.msgOffset = length - 1 - 2;
+                memcpy(connection.msg, &req[3], length - 1 - 2);
+
+                // Response include the current hash
+                Sha256Context ctx;
+                sha2_initSha256(&ctx);
+                sha2_updateSha256(&ctx, &req[3], length - 1 - 2);
+                sha2_finalSha256(&ctx, &resp[1]);
+
+                respLen = 13;
+
+            } else if (cmd == CMD_CONTINUE_MESSAGE) {
+
+                // Missing length parameter
+                if (length < 3) {
+                    resp[0] = (ERROR_BUFFER_OVERRUN << 4) | seqno;
+                    break;
+                }
+
+                // No message to continue
+                if (connection.msgOffset == 0) {
+                    resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                    break;
+                }
+
+                uint16_t msgOffset = (req[1] << 8) | req[2];
+
+                // Message offset is out of sync
+                if (msgOffset != connection.msgOffset) {
+                    resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                    break;
+                }
+
+                size_t remaining = connection.msgLen - msgOffset;
+
+                if (remaining > 509) {
+                    // The message could consume entire req but did not
+                    if (length < 1 + 2 + 509) {
+                        resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                        break;
+                    }
+                } else {
+                    // The message can fit in the req but was not
+                    if (length != 1 + 2 + remaining) {
+                        resp[0] = (ERROR_MISSING_MESSAGE << 4) | seqno;
+                        break;
+                    }
+                }
+
+                // Update the message
+                connection.msgOffset += length - 1 - 2;
+                memcpy(&connection.msg[msgOffset], &req[3], length - 1 - 2);
+
+                // Response include the current hash
+                Sha256Context ctx;
+                sha2_initSha256(&ctx);
+                sha2_updateSha256(&ctx, &req[3], length - 1 - 2);
+                sha2_finalSha256(&ctx, &resp[1]);
+
+                respLen = 13;
+
+            } else {
+                resp[0] |= (ERROR_BAD_COMMAND << 4) | seqno;
+            }
+
+        } while (0);
+
+        notify(connection.content, resp, respLen);
+
+        // Message ready to process!
+        if (connection.msgOffset && connection.msgOffset == connection.msgLen) {
+            processMessage();
         }
-        printf("\n");
 
         return 0;
+    }
 
-    } else {
-        if (arg) {
-            Payload *payload = arg;
+    ////////////////////
+    // Read operation (device-to-host)
 
-            printf("send (static): uuid=%04x length=%d\n", uuid,
-              payload->length);
+    // Static content; just pass along the payload
+    if (arg) {
+        Payload *payload = arg;
 
-            int rc = os_mbuf_append(ctx->om, payload->data, payload->length);
-            if (rc) { printf("[ble] failed to send: rc=%d", rc); }
-            return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
-        }
-
-        if (uuid == UUID_CHR_BATTERY_LEVEL) {
-            uint8_t data[] = { 100 };
-            printf("send: battery=%d\n", data[0]);
-            int rc = os_mbuf_append(ctx->om, data, sizeof(data));
-            return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
-        }
-
-        printf("send uuid=%04x\n", uuid);
-
-        static int foo = 0;
-        char buffer[9] = { 0 };
-        buffer[0] = foo++;
-        int rc = os_mbuf_append(ctx->om, &buffer, sizeof(buffer));
-
+        int rc = os_mbuf_append(ctx->om, payload->data, payload->length);
+        if (rc) { printf("[ble] failed to send: rc=%d", rc); }
         return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
-    assert(0);
-    return 0;
+    // The bettery UUID; pass along the percentage
+    if (uuid == UUID_CHR_BATTERY_LEVEL) {
+        uint8_t data[] = { 100 };
+        int rc = os_mbuf_append(ctx->om, data, sizeof(data));
+        return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    printf("send uuid=%04x\n", uuid);
+
+    static int foo = 0;
+    char buffer[9] = { 0 };
+    buffer[0] = foo++;
+    int rc = os_mbuf_append(ctx->om, &buffer, sizeof(buffer));
+
+    return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static void _svrRegister(struct ble_gatt_register_ctxt *ctxt, void *arg) {
@@ -229,9 +383,7 @@ static void _svrRegister(struct ble_gatt_register_ctxt *ctxt, void *arg) {
     }
 }
 
-static int ble_gap_event(struct ble_gap_event *event, void *arg);
-
-static uint8_t own_addr_type;
+static int _gapEvent(struct ble_gap_event *event, void *arg);
 
 static void _advertise() {
     printf("ble_advertise\n");
@@ -249,19 +401,13 @@ static void _advertise() {
     fields.tx_pwr_lvl_is_present = 1;
 
     // Set device name
-    const char *device_name = "Firefly"; //DEVICE_NAME;
+    const char *device_name = DEVICE_NAME;
     fields.name = (uint8_t *)device_name;
     fields.name_len = strlen(device_name);
     fields.name_is_complete = 1;
 
-    fields.appearance = APPEARANCE_GAMEPAD;
-    fields.appearance_is_present = 1;
-
-    //fields.le_role = MYNEWT_VAL_BLE_ROLE_PERIPHERAL;
-    //fields.le_role_is_present = 1;
-
     fields.uuids16 = (ble_uuid16_t[]) {
-        BLE_UUID16_INIT(UUID_SVC_HID),
+        BLE_UUID16_INIT(UUID_SVC_FSP),
     };
     fields.num_uuids16 = 1;
     fields.uuids16_is_complete = 1;
@@ -285,8 +431,8 @@ static void _advertise() {
 
     // Begin advertising
     {
-        int rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
-          &adv_params, ble_gap_event, NULL);
+        int rc = ble_gap_adv_start(connection.own_addr_type, NULL,
+          BLE_HS_FOREVER, &adv_params, _gapEvent, NULL);
 
         if (rc != 0) {
             MODLOG_DFLT(ERROR, "error enabling advertisement; rc=%d\n", rc);
@@ -298,13 +444,13 @@ static void _advertise() {
 static void _onSync(void) {
     int rc;
 
-    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    rc = ble_hs_id_infer_auto(0, &connection.own_addr_type);
     assert(rc == 0);
 
-    uint8_t addr[6] = {0};
-    rc = ble_hs_id_copy_addr(own_addr_type, addr, NULL);
+    rc = ble_hs_id_copy_addr(connection.own_addr_type,
+      connection.address, NULL);
 
-    print_addr("[ble] sync addr=", addr);
+    print_addr("[ble] sync addr=", connection.address);
 
     _advertise();
 }
@@ -313,50 +459,8 @@ static void _onReset(int reason) {
     printf("[ble] reset=%d\n", reason);
 }
 
-// This function simulates heart beat and notifies it to the client
-/*
-static void blehr_tx_hrate(TimerHandle_t ev) {
-    static uint8_t hrm[2];
-    int rc;
-    struct os_mbuf *om;
-
-    _TransportContext *context = (_TransportContext*)pvTimerGetTimerID(ev);
-
-    if (!notify_state) {
-        context->heartbeat = 90;
-        return;
-    }
-
-    hrm[0] = 0x06; // contact of a sensor
-    hrm[1] = context->heartbeat; // storing dummy data
-
-    // Simulation of heart beats
-    context->heartbeat++;
-    if (context->heartbeat == 160) {
-        context->heartbeat = 90;
-    }
-
-    om = ble_hs_mbuf_from_flat(hrm, sizeof(hrm));
-    rc = ble_gatts_notify_custom(context->conn_handle, context->hrs_hrm_handle, om);
-
-    assert(rc == 0);
-}
-*/
-
-static void notify() {
-    uint8_t data[9] = { 0 };
-    esp_fill_random(data, sizeof(data));
-    //for (int i = 0; i < sizeof(data); i++) { data[i] = 0xff; }
-
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(data, sizeof(data));
-    int rc = ble_gatts_notify_custom(connection.conn_handle,
-      connection.input_handle, om);
-    printf("Notify conn=%d, handle=%d rc=%d\n", connection.conn_handle,
-      connection.input_handle, rc);
-}
-
 // /Users/ricmoo/esp/esp-idf/components/bt//host/nimble/nimble/nimble/host/include/host/ble_gap.h
-static int ble_gap_event(struct ble_gap_event *event, void *_context) {
+static int _gapEvent(struct ble_gap_event *event, void *_context) {
 
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
@@ -515,6 +619,7 @@ void ble_store_config_init(void);
 
 void taskBleFunc(void* pvParameter) {
     uint32_t *ready = (uint32_t*)pvParameter;
+    vTaskSetApplicationTaskTag( NULL, (void*)NULL);
 
     // Device Information Service Data
 
@@ -558,213 +663,83 @@ void taskBleFunc(void* pvParameter) {
         .data = batteryLevel, .length = sizeof(batteryLevel)
     };
 
-    uint8_t hidInfo[] = { 0x11, 0x01, 0x00, 0x01 };
-    Payload payloadHidInfo = {
-        .data = hidInfo, .length = sizeof(hidInfo)
-    };
-
-    Payload payloadHidReportMap = {
-        .data = hidReportMap, .length = sizeof(hidReportMap)
-    };
-
-    uint8_t hidReportIn[] = { 0x01, 0x01 }; // REPORT_ID_IN=1
-    Payload payloadHidReportIn = {
-        .data = hidReportIn, .length = sizeof(hidReportIn)
-    };
-
-    uint8_t hidReportOut[] = { 0x05, 0x02 }; // REPORT_ID_OUT=5
-    //uint8_t hidReportOut[] = { 0x11, 0x02 }; // REPORT_ID_OUT=5
-    Payload payloadHidReportOut = {
-        .data = hidReportOut, .length = sizeof(hidReportOut)
-    };
-
-    uint8_t hidProtocolMode[] = { 0x01 };
-    Payload payloadHidProtocolMode = {
-        .data = hidProtocolMode, .length = sizeof(hidProtocolMode)
-    };
-
-
     // Definitions
 
-    const struct ble_gatt_svc_def services[] = {
+    const struct ble_gatt_svc_def services[] = { {
+        // Service: Device Information
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(UUID_SVC_DEVICE_INFO),
+        .characteristics = (struct ble_gatt_chr_def[]) { {
+            // Characteristic: * Manufacturer name
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_MANUFACTURER_NAME_STRING),
+            .access_cb = _gattAccess,
+            .arg = &payloadDisManufacturerName,
+            .flags = BLE_GATT_CHR_F_READ,
+        }, {
+            // Characteristic: Model number string
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_MODEL_NUMBER_STRING),
+            .access_cb = _gattAccess,
+            .arg = &payloadDisModelNumber,
+            .flags = BLE_GATT_CHR_F_READ,
+        }, {
+            // Characteristic: Model number string
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_FIRMWARE_REVISION_STRING),
+            .access_cb = _gattAccess,
+            .arg = &payloadDisFirmwareRevision,
+            .flags = BLE_GATT_CHR_F_READ,
+        }, {
+            // Characteristic: PNP
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_PNP),
+            .access_cb = _gattAccess,
+            .arg = &payloadDisPnp,
+            .flags = BLE_GATT_CHR_F_READ,
+        }, {
+            0, // No more characteristics in this service
+        } }
+    }, {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(UUID_SVC_BATTERY_LEVEL),
+        .characteristics = (struct ble_gatt_chr_def[]) { {
 
-        {
-            // Service: Device Information
-            .type = BLE_GATT_SVC_TYPE_PRIMARY,
-            .uuid = BLE_UUID16_DECLARE(UUID_SVC_DEVICE_INFO),
-            .characteristics = (struct ble_gatt_chr_def[])
-            { {
-                    // Characteristic: * Manufacturer name
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_MANUFACTURER_NAME_STRING),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadDisManufacturerName,
-                    .flags = BLE_GATT_CHR_F_READ,
-                }, {
-                    // Characteristic: Model number string
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_MODEL_NUMBER_STRING),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadDisModelNumber,
-                    .flags = BLE_GATT_CHR_F_READ,
-                }, {
-                    // Characteristic: Model number string
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_FIRMWARE_REVISION_STRING),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadDisFirmwareRevision,
-                    .flags = BLE_GATT_CHR_F_READ,
-                }, {
-                    // Characteristic: PNP
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_PNP),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadDisPnp,
-                    .flags = BLE_GATT_CHR_F_READ,
-                }, {
-                    0, // No more characteristics in this service
-                },
-            }
-        },
-
-        {
-            .type = BLE_GATT_SVC_TYPE_PRIMARY,
-            .uuid = BLE_UUID16_DECLARE(UUID_SVC_BATTERY_LEVEL),
-            .characteristics = (struct ble_gatt_chr_def[]) { {
-                // Battery Level
-                .uuid = BLE_UUID16_DECLARE(UUID_CHR_BATTERY_LEVEL),
+            // Battery Level
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_BATTERY_LEVEL),
+            .access_cb = _gattAccess,
+            .val_handle = &connection.battery_handle,
+            .descriptors = (struct ble_gatt_dsc_def[]) { {
+                .uuid = BLE_UUID16_DECLARE(UUID_DSC_BATTERY_LEVEL),
                 .access_cb = _gattAccess,
-                .val_handle = &connection.battery_handle,
-                .descriptors = (struct ble_gatt_dsc_def[]) { {
-                    .uuid = BLE_UUID16_DECLARE(UUID_DSC_BATTERY_LEVEL),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadBatteryLevel,
-                    .att_flags = BLE_ATT_F_READ
-                }, {
-                    .uuid = NULL
-                } },
-                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .arg = &payloadBatteryLevel,
+                .att_flags = BLE_ATT_F_READ
             }, {
-                .uuid = NULL,
+                .uuid = NULL
             } },
-        },
-
-        {
-            // Service: HID Gamepad
-            .type = BLE_GATT_SVC_TYPE_PRIMARY,
-            .uuid = BLE_UUID16_DECLARE(UUID_SVC_HID),
-            .characteristics = (struct ble_gatt_chr_def[])
-            { {
-                    // Characteristic: HID Info
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_INFO),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadHidInfo,
-                    .flags = BLE_GATT_CHR_F_READ
-                }, {
-                    // Characteristic: HID Report Map
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_REPORT_MAP),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadHidReportMap,
-                    .flags = BLE_GATT_CHR_F_READ
-                }, {
-                    // Characteristic: HID Control Point
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_CONTROL_POINT),
-                    .access_cb = _gattAccess,
-                    .flags = BLE_GATT_CHR_F_WRITE_NO_RSP
-                }, {
-                    // Characteristic: HID Protocol Mode
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_PROTOCOL_MODE),
-                    .access_cb = _gattAccess,
-                    .arg = &payloadHidProtocolMode,
-                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE_NO_RSP
-                }, {
-                    // Characteristic: HID Report Map (input)
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_REPORT),
-                    .access_cb = _gattAccess,
-                    .val_handle = &connection.input_handle,
-                    .descriptors = (struct ble_gatt_dsc_def[]){ {
-                        .uuid = BLE_UUID16_DECLARE(UUID_DSC_HID_REPORT),
-                        .att_flags = BLE_ATT_F_READ | BLE_ATT_F_READ_ENC,
-                        .access_cb = _gattAccess,
-                        .arg = &payloadHidReportIn
-                    }, {
-                        .uuid = NULL
-                    } },
-                    .flags = BLE_GATT_CHR_F_READ | BLE_ATT_F_READ_ENC
-                      | BLE_GATT_CHR_F_NOTIFY,
-                }, {
-                    // Characteristic: HID Report Map (output)
-                    .uuid = BLE_UUID16_DECLARE(UUID_CHR_HID_REPORT),
-                    .access_cb = _gattAccess,
-                    .descriptors = (struct ble_gatt_dsc_def[]){ {
-                        .uuid = BLE_UUID16_DECLARE(UUID_DSC_HID_REPORT),
-                        .att_flags = BLE_ATT_F_READ | BLE_ATT_F_READ_ENC
-                          | BLE_ATT_F_WRITE | BLE_ATT_F_WRITE_ENC,
-                        .access_cb = _gattAccess,
-                        .arg = &payloadHidReportOut
-                    }, {
-                        .uuid = NULL
-                    } },
-                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC
-                      | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC
-                      | BLE_GATT_CHR_F_WRITE_NO_RSP
-                }, {
-                    0, // No more characteristics in this service
-                },
-            },
-        },
-
-        /*
-        {
-            // Service: U2F Service
-            .type = BLE_GATT_SVC_TYPE_PRIMARY,
-            .uuid = BLE_UUID16_DECLARE(UUID_SVC_U2F),
-            .characteristics = (struct ble_gatt_chr_def[])
-            { {
-                    // Characteristic: U2F Control Point
-                    .uuid = UUID_CHR_U2F_CONTROL_POINT,
-                    .access_cb = _chrAccessU2f,
-                    .flags = BLE_GATT_CHR_F_WRITE
-                      | BLE_GATT_CHR_F_WRITE_ENC
-                    ,
-
-               }, {
-                    // Characteristic: U2F Status
-                    .uuid = UUID_CHR_U2F_STATUS,
-                    .access_cb = _chrAccessU2f,
-                    .flags = BLE_GATT_CHR_F_NOTIFY,
-
-               }, {
-                    // Characteristic: U2F Control Point Length
-                    .uuid = UUID_CHR_U2F_CONTROL_POINT_LENGTH,
-                    .access_cb = _chrAccessU2f,
-                    .flags = BLE_GATT_CHR_F_READ
-                      | BLE_GATT_CHR_F_READ_ENC
-                    ,
-
-               }, {
-                    // Characteristic: U2F Service Revision
-                    .uuid = UUID_CHR_U2F_SERVICE_REVISION,
-                    .access_cb = _chrAccessU2f,
-                    .flags = BLE_GATT_CHR_F_READ
-                      | BLE_GATT_CHR_F_READ_ENC
-                    ,
-
-               }, {
-                    // Characteristic: U2F Service Revision Bitfield
-                    .uuid = UUID_CHR_U2F_SERVICE_REVISION_BITFIELD,
-                    .access_cb = _chrAccessU2f,
-                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE
-                      | BLE_GATT_CHR_F_READ_ENC | BLE_GATT_CHR_F_WRITE_ENC
-                    ,
-
-                }, {
-                    0, // No more characteristics in this service
-                },
-            }
-        },
-        */
-
-        {
-            0, // No more services
-        },
-    };
+            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        }, {
+            .uuid = NULL,
+        } },
+    }, {
+        // Service: Firefly Serial Protocol
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(UUID_SVC_FSP),
+        .characteristics = (struct ble_gatt_chr_def[]) { {
+            // Characteristic: Data
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_FSP_CONTENT),
+            .access_cb = _gattAccess,
+            .val_handle = &connection.content,
+            .flags = BLE_GATT_CHR_F_READ | BLE_ATT_F_READ_ENC
+              | BLE_ATT_F_WRITE | BLE_ATT_F_WRITE_ENC | BLE_GATT_CHR_F_INDICATE
+        }, {
+            // Characteristic: Log
+            .uuid = BLE_UUID16_DECLARE(UUID_CHR_FSP_LOGGER),
+            .access_cb = _gattAccess,
+            .val_handle = &connection.logger,
+            .flags = BLE_GATT_CHR_F_NOTIFY
+        }, {
+            0, // No more characteristics in this service
+        } },
+    }, {
+        0, // No more services
+    } };
 
     // Initialize NVS — it is used to store PHY calibration data
     {
@@ -821,8 +796,11 @@ void taskBleFunc(void* pvParameter) {
     *ready = 1;
 
     while (1) {
-        delay(10000);
-        if (connection.state & STATE_SUBSCRIBED) { notify(); }
+        delay(30000);
+        if (connection.state & STATE_SUBSCRIBED) {
+            char *ping = "ping";
+            notify(connection.logger, (uint8_t*)ping, sizeof(ping));
+        }
     }
 }
 
