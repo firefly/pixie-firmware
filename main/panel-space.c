@@ -9,9 +9,9 @@
 #include "images/image-ship.h"
 #include "images/image-space.h"
 
-#include "./app.h"
+#include "panel.h"
 
-#include "./panel-space.h"
+#include "panel-space.h"
 
 #define ROWS        (4)
 #define COLS        (4)
@@ -194,13 +194,13 @@ static int _init(FfxScene scene, FfxNode panel, void* panelState, void* arg) {
             });
     }
 
-    app_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyCancel,
+    panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyCancel,
       keyChanged, space);
-    app_onEvent(EventNameRenderScene, render, space);
+    panel_onEvent(EventNameRenderScene, render, space);
 
     return 0;
 }
 
 void pushPanelSpace(void* arg) {
-    app_push(_init, sizeof(SpaceState), arg);
+    panel_push(_init, sizeof(SpaceState), arg);
 }

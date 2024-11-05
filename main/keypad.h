@@ -10,7 +10,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-#include "app.h"
+#include "panel.h"
 
 
 #define KEYPAD_SAMPLE_COUNT    (10)

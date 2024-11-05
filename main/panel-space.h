@@ -5,9 +5,6 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#include "firefly-scene.h"
-
-#include "app.h"
 
 void pushPanelSpace(void* arg);
 

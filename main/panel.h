@@ -1,5 +1,5 @@
-#ifndef __APP_H__
-#define __APP_H__
+#ifndef __PANEL_H__
+#define __PANEL_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,20 +11,20 @@ extern "C" {
 #include "firefly-scene.h"
 
 
-typedef int (*AppInit)(FfxScene scene, FfxNode node, void* app, void* arg);
+typedef int (*PanelInit)(FfxScene scene, FfxNode node, void* state, void* arg);
 
-void app_push(AppInit appInit, size_t stateSize, void* arg);
+void panel_push(PanelInit init, size_t stateSize, void* arg);
 
-// Deletes the current app task, returning control to previous app in stack
-void app_pop();
+// Deletes the current panel task, returning control to previous panel in stack
+void panel_pop();
 
 
 // Disabling requests clears any pending message
-//void app_enableRequest(bool enabled);
+//void panel_enableRequest(bool enabled);
 
 // Blocks the current task until the BLE task accepts and sends
 // the response
-//bool app_sendResponse(uint8_t *payload, size_t length);
+//bool panel_sendResponse(uint8_t *payload, size_t length);
 
 typedef uint16_t Keys;
 
@@ -57,7 +57,7 @@ typedef enum EventName {
     // Message events
     EventNameMessage        = ((0x20) << 24),
 
-    // Custom event for applications to use (is this a good idea?)
+    // Custom event for panels to use (is this a good idea?)
     EventNameCustom         = ((0xf0) << 24),
 
     // Mask to isolate the event type
@@ -101,11 +101,11 @@ typedef struct EventPayload {
 
 typedef void (*EventCallback)(EventPayload event, void* arg);
 
-int app_onEvent(EventName event, EventCallback cb, void* arg);
+int panel_onEvent(EventName event, EventCallback cb, void* arg);
 
-void app_offEvent(uint32_t eventId);
+void panel_offEvent(int eventId);
 
-uint32_t app_keys();
+uint32_t panel_keys();
 
 
 
@@ -113,4 +113,4 @@ uint32_t app_keys();
 }
 #endif /* __cplusplus */
 
-#endif /* __APP_H__ */
+#endif /* __PANEL_H__ */

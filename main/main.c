@@ -24,7 +24,7 @@
 #include "images/image-pixie.h"
 #include "images/image-title.h"
 
-#include "./app.h"
+#include "./panel.h"
 #include "./panel-menu.h"
 #include "./panel-space.h"
 #include "./config.h"
@@ -39,25 +39,25 @@
 #define FRAME_DELAY_HI     ((FRAME_DELAY_LO) + 1)
 
 
-typedef struct _AppInit {
-    AppInit init;
+typedef struct _PanelInit {
+    PanelInit init;
     int id;
     size_t stateSize;
     void *arg;
     uint32_t ready;
-} _AppInit;
+} _PanelInit;
 
-typedef struct AppContext {
+typedef struct PanelContext {
     QueueHandle_t events;
     int id;
     uint8_t *state;
     FfxNode node;
-} AppContext;
+} PanelContext;
 
 typedef struct EventFilter {
     int id;
 
-    AppContext *app;
+    PanelContext *panel;
 
     EventName event;
     EventCallback callback;
@@ -121,7 +121,7 @@ static void emitKeyEvents(KeypadContext keypad) {
         event.payload.props.keyEvent.down = down;
         event.payload.props.keyEvent.changed = changed;
 
-        QueueHandle_t events = filter->app->events;
+        QueueHandle_t events = filter->panel->events;
         xQueueSendToBack(events, &event, 2);
     }
 
@@ -150,13 +150,13 @@ static void emitDisplayEvents(FfxScene scene) {
         event.payload.eventId = filter->id;
         event.payload.props.renderEvent.ticks = ticks();
 
-        QueueHandle_t events = filter->app->events;
+        QueueHandle_t events = filter->panel->events;
         BaseType_t status = xQueueSendToBack(events, &event, 0);
         if (status != pdTRUE) {
             countFail++;
             if (countFail == 1 || countFail == 100) {
-                printf("[%s] emit:RenderScene failed: to=app-%d id=%d ok=%ld fail=%ld status=%d\n",
-                  taskName(NULL), filter->app->id, filter->id, countOk,
+                printf("[%s] emit:RenderScene failed: to=panel-%d id=%d ok=%ld fail=%ld status=%d\n",
+                  taskName(NULL), filter->panel->id, filter->id, countOk,
                   countFail, status);
                 if (countFail == 100) { countOk = countFail = 0; }
             }
@@ -184,8 +184,8 @@ static EventFilter* _getEmptyFilter() {
 }
 
 
-int app_onEvent(EventName event, EventCallback callback, void *arg) {
-    AppContext *ctx = (void*)xTaskGetApplicationTaskTag(NULL);
+int panel_onEvent(EventName event, EventCallback callback, void *arg) {
+    PanelContext *ctx = (void*)xTaskGetApplicationTaskTag(NULL);
 
     static int nextEventId = 1;
 
@@ -202,7 +202,7 @@ int app_onEvent(EventName event, EventCallback callback, void *arg) {
     }
 
     filter->id = eventId;
-    filter->app = ctx;
+    filter->panel = ctx;
 
     filter->event = event;
     filter->callback = callback;
@@ -213,7 +213,7 @@ int app_onEvent(EventName event, EventCallback callback, void *arg) {
     return eventId;
 }
 
-void app_offEvent(uint32_t eventId) {
+void panel_offEvent(int eventId) {
     xSemaphoreTake(lockEvents, portMAX_DELAY);
 
     for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
@@ -578,23 +578,23 @@ static void taskIoFunc(void* pvParameter) {
 
 
 
-static void _appInit(void *_arg) {
-    // Copy the AppInit so we can unblock the caller and it can
+static void _panelInit(void *_arg) {
+    // Copy the PanelInit so we can unblock the caller and it can
     // free this from its stack (by returning)
-    AppInit init = NULL;
+    PanelInit init = NULL;
     size_t stateSize = 0;
-    int appId = 0;
+    int panelId = 0;
     void* arg;
     {
-        _AppInit *appInit = _arg;
-        init = appInit->init;
-        appId = appInit->id;
-        stateSize = appInit->stateSize ? appInit->stateSize: 1;
-        arg = appInit->arg;
-        appInit->ready = 1;
+        _PanelInit *panelInit = _arg;
+        init = panelInit->init;
+        panelId = panelInit->id;
+        stateSize = panelInit->stateSize ? panelInit->stateSize: 1;
+        arg = panelInit->arg;
+        panelInit->ready = 1;
     }
 
-    // Create the app state
+    // Create the panel state
     uint8_t state[stateSize];
     memset(state, 0, stateSize);
 
@@ -609,14 +609,14 @@ static void _appInit(void *_arg) {
     ffx_scene_appendChild(ffx_scene_root(scene), node);
 
     // Create the App context (attached to the task tag)
-    AppContext context = { 0 };
-    context.id = appId;
+    PanelContext context = { 0 };
+    context.id = panelId;
     context.state = state;
     context.events = events;
     context.node = node;
     vTaskSetApplicationTaskTag(NULL, (void*)&context);
 
-    // Initialize the app
+    // Initialize the Panel
     init(scene, context.node, context.state, arg);
 
     // Begin the event loop
@@ -632,27 +632,27 @@ static void _appInit(void *_arg) {
     }
 }
 
-void app_push(AppInit init, size_t stateSize, void *arg) {
-    static int nextAppId = 1;
+void panel_push(PanelInit init, size_t stateSize, void *arg) {
+    static int nextPanelId = 1;
 
-    int appId = nextAppId++;
+    int panelId = nextPanelId++;
 
     char name[configMAX_TASK_NAME_LEN];
-    snprintf(name, sizeof(name), "app-%d", appId);
+    snprintf(name, sizeof(name), "panel-%d", panelId);
 
     TaskHandle_t handle = NULL;
-    _AppInit appInit = { 0 };
-    appInit.id = appId;
-    appInit.init = init;
-    appInit.stateSize = stateSize;
-    appInit.arg = arg;
+    _PanelInit panelInit = { 0 };
+    panelInit.id = panelId;
+    panelInit.init = init;
+    panelInit.stateSize = stateSize;
+    panelInit.arg = arg;
 
-    BaseType_t status = xTaskCreatePinnedToCore(&_appInit, name, 8192 * 4,
-      &appInit, 1, &handle, 0);
-        printf("[main] init app task: status=%d\n", status);
+    BaseType_t status = xTaskCreatePinnedToCore(&_panelInit, name, 8192 * 4,
+      &panelInit, 1, &handle, 0);
+        printf("[main] init panel task: status=%d\n", status);
         assert(handle != NULL);
 
-    while (!appInit.ready) { delay(2); } // ?? Maybe use event?
+    while (!panelInit.ready) { delay(2); } // ?? Maybe use event?
 }
 
 void app_main() {

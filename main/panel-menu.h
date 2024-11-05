@@ -5,18 +5,8 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#include "firefly-scene.h"
 
-#include "app.h"
-
-typedef struct PanelMenuState {
-    size_t cursor;
-    FfxScene scene;
-    FfxNode nodeCursor;
-} PanelMenuState;
-
-int panelMenuInit(FfxScene scene, FfxNode node, void* panelState, void* arg);
-
+void pushPanelMenu(void *arg);
 
 
 #ifdef __cplusplus

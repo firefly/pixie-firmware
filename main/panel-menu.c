@@ -1,8 +1,21 @@
 #include <stdio.h>
 
+#include "firefly-scene.h"
+
+#include "panel.h"
+#include "./panel-menu.h"
+
 #include "images/image-arrow.h"
 
-#include "./panel-menu.h"
+
+typedef struct MenuState {
+    size_t cursor;
+    FfxScene scene;
+    FfxNode nodeCursor;
+} MenuState;
+
+int panelMenuInit(FfxScene scene, FfxNode node, void* panelState, void* arg);
+
 
 //static void render(EventPayload event, void *_app) {
     //PanelMenuState *app = arg;
@@ -11,7 +24,7 @@
 //}
 
 static void keyChanged(EventPayload event, void *_app) {
-    PanelMenuState *app = _app;
+    MenuState *app = _app;
 
     switch(event.props.keyEvent.down) {
         case KeyOk:
@@ -35,10 +48,10 @@ static void keyChanged(EventPayload event, void *_app) {
       FfxCurveEaseOutQuad, NULL);
 }
 
-int panelMenuInit(FfxScene scene, FfxNode node, void *_app, void *arg) {
+static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
     printf("Init menu\n");
 
-    PanelMenuState *app = _app;
+    MenuState *app = _app;
     app->scene = scene;
 
     const char* const phrasePixies = "Show BG";
@@ -71,9 +84,13 @@ int panelMenuInit(FfxScene scene, FfxNode node, void *_app, void *arg) {
 
     app->nodeCursor = cursor;
 
-//    app_onEvent(EventNameRenderScene, render, app);
-    app_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk,
+//    panel_onEvent(EventNameRenderScene, render, app);
+    panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk,
       keyChanged, app);
 
     return 0;
+}
+
+void pushPanelMenu(void *arg) {
+    panel_push(_init, sizeof(MenuState), arg);
 }
