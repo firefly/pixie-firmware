@@ -10,8 +10,6 @@ extern "C" {
 
 #include "firefly-scene.h"
 
-#include "./system/keypad.h"
-
 
 typedef int (*AppInit)(FfxScene scene, FfxNode node, void* app, void* arg);
 

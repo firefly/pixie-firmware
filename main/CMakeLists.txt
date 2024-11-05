@@ -1,14 +1,14 @@
 idf_component_register(
   SRCS
     "main.c"
+    "keypad.c"
+    "panel-menu.c"
+    "panel-space.c"
     "task-ble.c"
     "system/device-info.c"
-    "system/keypad.c"
     "system/pixels.c"
     "system/utils.c"
     "utils/cbor.c"
-    "panel-menu.c"
-    "panel-space.c"
   INCLUDE_DIRS
     ""
 )

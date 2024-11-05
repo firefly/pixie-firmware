@@ -5,9 +5,9 @@
 #include <driver/gpio.h>
 #include <hal/gpio_ll.h>
 
-#include "../config.h"
+#include "config.h"
 
-#include "./keypad.h"
+#include "keypad.h"
 
 typedef struct _KeypadContext {
     Keys keys;

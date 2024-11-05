@@ -13,9 +13,9 @@
 #include "crypto/keccak256.h"
 #include "crypto/ecc.h"
 
+#include "keypad.h"
 #include "task-ble.h"
 #include "system/device-info.h"
-#include "system/keypad.h"
 #include "system/pixels.h"
 #include "system/utils.h"
 #include "system/output.h"
