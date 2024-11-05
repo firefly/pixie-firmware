@@ -6,6 +6,9 @@ idf_component_register(
     "system/keypad.c"
     "system/pixels.c"
     "system/utils.c"
-  INCLUDE_DIRS ""
+    "utils/cbor.c"
+    "panel-menu.c"
+    "panel-space.c"
+  INCLUDE_DIRS
+    ""
 )
-

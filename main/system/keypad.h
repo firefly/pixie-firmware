@@ -6,17 +6,25 @@
 extern "C" {
 #endif /* __cplusplus */
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+#include "../app.h"
 
 
 #define KEYPAD_SAMPLE_COUNT    (10)
 
-
 // Keypad Context Object (opaque; do not inspect or rely on internals)
 typedef void* KeypadContext;
 
-KeypadContext keypad_init(uint32_t keys);
+extern size_t KeypadContextSize;
+
+KeypadContext keypad_init(void *memory);
+KeypadContext keypad_alloc();
 void keypad_free(KeypadContext context);
+
+void keypad_clone(KeypadContext *dst, KeypadContext *src);
 
 // Add the sample
 void keypad_sample(KeypadContext context);
@@ -25,12 +33,12 @@ void keypad_sample(KeypadContext context);
 void keypad_latch(KeypadContext context);
 
 // Returns the bits set for the keys that changed since the last latch
-uint32_t keypad_didChange(KeypadContext context, uint32_t keys);
+Keys keypad_didChange(KeypadContext context, Keys keys);
 
-// Return non-zero if all keys are down. 
-uint32_t keypad_isDown(KeypadContext context, uint32_t keys);
+// Return non-zero if all keys are down.
+bool keypad_isDown(KeypadContext context, Keys keys);
 
-uint32_t keypad_read(KeypadContext context);
+Keys keypad_read(KeypadContext context);
 
 
 //uint32_t keypad_readHoldTime(uint32_t keys);
