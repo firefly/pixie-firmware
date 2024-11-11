@@ -142,7 +142,7 @@ DeviceStatus device_init() {
     return ready;
 }
 
-uint32_t device_attest(uint8_t *challenge, DeviceAttestation *attest) {
+DeviceStatus device_attest(uint8_t *challenge, DeviceAttestation *attest) {
     if (!ready) { return ready; }
 
     size_t offset = 0;

@@ -79,7 +79,7 @@ typedef struct DeviceAttestation {
  *  Note:
  *   - all signatures are EIP-2098 compressed signatures
  */
-uint32_t device_attest(uint8_t *challenge, DeviceAttestation *attest);
+DeviceStatus device_attest(uint8_t *challenge, DeviceAttestation *attest);
 
 
 #ifdef __cplusplus
