@@ -20,6 +20,9 @@
 #include "./system/utils.h"
 #include "./utils/cbor.h"
 
+// See: main.c
+void emitMessageEvents(uint8_t *data, size_t length);
+
 typedef struct Payload {
     size_t length;
     uint8_t *data;
@@ -31,6 +34,8 @@ typedef struct Payload {
 #define STATE_CONNECTED         (1 << 0)
 #define STATE_SUBSCRIBED        (1 << 1)
 #define STATE_ENCRYPTED         (1 << 2)
+
+
 typedef struct Connection {
     uint32_t state;
 
@@ -41,6 +46,8 @@ typedef struct Connection {
     uint16_t content;
     uint16_t logger;
     uint16_t battery_handle;
+
+    bool enabled;
 
     // The buffer to hold an incoming message
     uint8_t msg[MAX_MESSAGE_SIZE];
@@ -101,6 +108,7 @@ static void dumpBuffer(char *header, uint8_t *buffer, size_t length) {
 #define CMD_START_MESSAGE                           (0b0110)
 #define CMD_CONTINUE_MESSAGE                        (0b0111)
 
+#define CBOR_RESP                                   (0x00)
 #define ERROR_UNKNOWN                               (0b1000)
 #define ERROR_UNSUPPORTED_VERSION                   (0b1001)
 #define ERROR_BAD_COMMAND                           (0b1010)
@@ -110,6 +118,11 @@ static void dumpBuffer(char *header, uint8_t *buffer, size_t length) {
 
 
 static int notify(uint16_t handle, uint8_t *data, size_t length) {
+    if ((connection.state & STATE_CONNECTED) == 0) {
+        printf("Not connected; cannot notify\n");
+        return -1;
+    }
+
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, length);
     //int rc = ble_gatts_notify_custom(connection.conn_handle, handle, om);
     int rc = ble_gatts_indicate_custom(connection.conn_handle, handle, om);
@@ -119,6 +132,8 @@ static int notify(uint16_t handle, uint8_t *data, size_t length) {
 
 static void processMessage() {
     dumpBuffer("Process Message", connection.msg, connection.msgLen);
+    emitMessageEvents(connection.msg, connection.msgLen);
+    /*
 
     uint64_t value;
 
@@ -133,6 +148,7 @@ static void processMessage() {
 
     connection.msgOffset = 0;
     connection.msgLen = 0;
+    */
 }
 
 // @TODO: Renamte to gattAccess
@@ -157,7 +173,6 @@ static int _gattAccess(uint16_t conn_handle, uint16_t attr_handle,
     }
 
     if (isWrite) {
-
         ////////////////////
         // Write operation (host-to-device)
 
@@ -333,6 +348,24 @@ static int _gattAccess(uint16_t conn_handle, uint16_t attr_handle,
 
         int rc = os_mbuf_append(ctx->om, payload->data, payload->length);
         if (rc) { printf("[ble] failed to send: rc=%d", rc); }
+        return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (uuid == UUID_CHR_FSP_CONTENT) {
+        if (!connection.enabled) {
+            // { v: 1, e: "HUP" }
+            uint8_t data[] = {
+                CBOR_RESP, 162, 97, 118, 1, 97, 101, 99,  72, 85, 80
+            };
+            int rc = os_mbuf_append(ctx->om, data, sizeof(data));
+            return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+
+        // { v: 1, e: "RDY" }
+        uint8_t data[] = {
+            CBOR_RESP, 162, 97, 118, 1, 97, 101, 99,  82, 68, 89
+        };
+        int rc = os_mbuf_append(ctx->om, data, sizeof(data));
         return (rc == 0) ? 0: BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
@@ -613,6 +646,16 @@ static void _runTask() {
     printf("[ble] BLE Host Task Stopped\n");
 }
 
+void panel_enableMessage(bool enable) {
+    connection.enabled = enable;
+}
+
+bool panel_isMessageEnabled() { return connection.enabled; }
+
+int panel_sendReply(uint8_t *data, size_t length) {
+    return notify(connection.content, data, length);
+}
+
 
 // TEMP
 void ble_store_config_init(void);
@@ -796,11 +839,13 @@ void taskBleFunc(void* pvParameter) {
     *ready = 1;
 
     while (1) {
-        delay(30000);
+        delay(3000);
+        /*
         if (connection.state & STATE_SUBSCRIBED) {
             char *ping = "ping";
             notify(connection.logger, (uint8_t*)ping, sizeof(ping));
         }
+        */
     }
 }
 

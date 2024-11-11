@@ -17,6 +17,8 @@ typedef void* TransportContext;
 typedef void (*MessageReceived)(TransportContext context,
     uint32_t command, uint8_t *data, size_t length);
 
+bool panel_isMessageEnabled();
+void panel_enableMessage(bool enable);
 
 //void transport_task(void* pvParameter);
 //uint32_t transport_send(TransportContext context,
