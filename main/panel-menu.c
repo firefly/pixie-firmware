@@ -3,7 +3,10 @@
 #include "firefly-scene.h"
 
 #include "panel.h"
+#include "./panel-attest.h"
+#include "./panel-gifs.h"
 #include "./panel-menu.h"
+#include "./panel-space.h"
 
 #include "images/image-arrow.h"
 
@@ -14,21 +17,23 @@ typedef struct MenuState {
     FfxNode nodeCursor;
 } MenuState;
 
-int panelMenuInit(FfxScene scene, FfxNode node, void* panelState, void* arg);
-
-
-//static void render(EventPayload event, void *_app) {
-    //PanelMenuState *app = arg;
-    //FfxPoint *pos = ffx_scene_nodePosition(app->box);
-    //pos->x = (pos->x + 1) % 250;
-//}
 
 static void keyChanged(EventPayload event, void *_app) {
     MenuState *app = _app;
 
     switch(event.props.keyEvent.down) {
         case KeyOk:
-            printf("Launch: %d\n", app->cursor);
+            switch(app->cursor) {
+                case 0:
+                    pushPanelAttest(NULL);
+                    break;
+                case 1:
+                    pushPanelGifs(NULL);
+                    break;
+                case 2:
+                    pushPanelSpace(NULL);
+                    break;
+            }
             return;
         case KeyNorth:
             if (app->cursor == 0) { return; }
@@ -49,14 +54,12 @@ static void keyChanged(EventPayload event, void *_app) {
 }
 
 static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
-    printf("Init menu\n");
-
     MenuState *app = _app;
     app->scene = scene;
 
-    const char* const phrasePixies = "Show BG";
-    const char* const phraseDevice = "Device";
-    const char* const phraseSpace  = "Le Space";
+    const char* const phraseOption1   = "Device";
+    const char* const phraseOption2   = "GIFs";
+    const char* const phraseOption3   = "Le Space";
 
     FfxNode box = ffx_scene_createBox(scene, (FfxSize){ .width = 200, .height = 180 }, RGB_DARK75);
     ffx_scene_appendChild(node, box);
@@ -65,16 +68,15 @@ static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
 
     FfxNode text;
 
-    text = ffx_scene_createTextStr(scene, phrasePixies);
-    printf("text p=%p\n", text);
+    text = ffx_scene_createTextStr(scene, phraseOption1);
     ffx_scene_appendChild(node, text);
     ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 70, .y = 85 });
 
-    text = ffx_scene_createTextStr(scene, phraseDevice);
+    text = ffx_scene_createTextStr(scene, phraseOption2);
     ffx_scene_appendChild(node, text);
     ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 70, .y = 125 });
 
-    text = ffx_scene_createTextStr(scene, phraseSpace);
+    text = ffx_scene_createTextStr(scene, phraseOption3);
     ffx_scene_appendChild(node, text);
     ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 70, .y = 165 });
 
@@ -84,7 +86,6 @@ static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
 
     app->nodeCursor = cursor;
 
-//    panel_onEvent(EventNameRenderScene, render, app);
     panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk,
       keyChanged, app);
 
@@ -92,5 +93,5 @@ static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
 }
 
 void pushPanelMenu(void *arg) {
-    panel_push(_init, sizeof(MenuState), arg);
+    panel_push(_init, sizeof(MenuState), PanelStyleCoverUp, arg);
 }
