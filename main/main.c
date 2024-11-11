@@ -26,7 +26,6 @@
 
 #include "./panel.h"
 #include "./panel-menu.h"
-#include "./panel-space.h"
 #include "./config.h"
 
 
@@ -45,6 +44,7 @@ typedef struct _PanelInit {
     size_t stateSize;
     void *arg;
     uint32_t ready;
+    PanelStyle style;
 } _PanelInit;
 
 typedef struct PanelContext {
@@ -52,6 +52,8 @@ typedef struct PanelContext {
     int id;
     uint8_t *state;
     FfxNode node;
+    struct PanelContext *parent;
+    PanelStyle style;
 } PanelContext;
 
 typedef struct EventFilter {
@@ -74,11 +76,53 @@ typedef struct EventDispatch {
 #define MAX_EVENT_FILTERS  (32)
 #define MAX_EVENT_BACKLOG  (8)
 
+static PanelContext *activePanel = NULL;
+
 static EventFilter eventFilters[MAX_EVENT_FILTERS] = { 0 };
 static SemaphoreHandle_t lockEvents;
 
 static bool animating = false;
 static FfxScene scene;
+
+
+static void emitDisplayEvents(FfxScene scene) {
+    xSemaphoreTake(lockEvents, portMAX_DELAY);
+
+    static uint32_t countOk = 0, countFail = 0;
+    for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
+        EventFilter *filter = &eventFilters[i];
+        if (filter->event != EventNameRenderScene) { continue; }
+
+        // Already has a display event and is falling behind;
+        // don't overwhel it
+        //if (filter->app->hasRenderEvent) { continue; }
+
+        EventDispatch event = { 0 };
+
+        event.callback = filter->callback;
+        event.arg = filter->arg;
+
+        event.payload.event = filter->event;
+        event.payload.eventId = filter->id;
+        event.payload.props.renderEvent.ticks = ticks();
+
+        QueueHandle_t events = filter->panel->events;
+        BaseType_t status = xQueueSendToBack(events, &event, 0);
+        if (status != pdTRUE) {
+            countFail++;
+            if (countFail == 1 || countFail == 100) {
+                printf("[%s] emit:RenderScene failed: to=panel-%d id=%d ok=%ld fail=%ld status=%d\n",
+                  taskName(NULL), filter->panel->id, filter->id, countOk,
+                  countFail, status);
+                if (countFail == 100) { countOk = countFail = 0; }
+            }
+        } else {
+            countOk++;
+        }
+    }
+
+    xSemaphoreGive(lockEvents);
+}
 
 static void emitKeyEvents(KeypadContext keypad) {
     xSemaphoreTake(lockEvents, portMAX_DELAY);
@@ -88,6 +132,8 @@ static void emitKeyEvents(KeypadContext keypad) {
         if ((filter->event & EventNameCategoryMask) != EventNameCategoryKeys) {
             continue;
         }
+
+        if (filter->panel != activePanel) { continue; }
 
         Keys keys = filter->event & KeyAll;
 
@@ -128,18 +174,13 @@ static void emitKeyEvents(KeypadContext keypad) {
     xSemaphoreGive(lockEvents);
 }
 
-static void emitDisplayEvents(FfxScene scene) {
-
+void emitMessageEvents(uint8_t *data, size_t length) {
     xSemaphoreTake(lockEvents, portMAX_DELAY);
 
-    static uint32_t countOk = 0, countFail = 0;
     for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
         EventFilter *filter = &eventFilters[i];
-        if (filter->event != EventNameRenderScene) { continue; }
-
-        // Already has a display event and is falling behind;
-        // don't overwhel it
-        //if (filter->app->hasRenderEvent) { continue; }
+        if (filter->event != EventNameMessage) { continue; }
+        if (filter->panel != activePanel) { continue; }
 
         EventDispatch event = { 0 };
 
@@ -148,25 +189,40 @@ static void emitDisplayEvents(FfxScene scene) {
 
         event.payload.event = filter->event;
         event.payload.eventId = filter->id;
-        event.payload.props.renderEvent.ticks = ticks();
+        event.payload.props.messageEvent.data = data;
+        event.payload.props.messageEvent.length = length;
 
         QueueHandle_t events = filter->panel->events;
-        BaseType_t status = xQueueSendToBack(events, &event, 0);
-        if (status != pdTRUE) {
-            countFail++;
-            if (countFail == 1 || countFail == 100) {
-                printf("[%s] emit:RenderScene failed: to=panel-%d id=%d ok=%ld fail=%ld status=%d\n",
-                  taskName(NULL), filter->panel->id, filter->id, countOk,
-                  countFail, status);
-                if (countFail == 100) { countOk = countFail = 0; }
-            }
-        } else {
-            countOk++;
-        }
+        xQueueSendToBack(events, &event, 2);
     }
 
     xSemaphoreGive(lockEvents);
 }
+
+static void emitPanelEvents(EventName event, PanelContext *panel) {
+    xSemaphoreTake(lockEvents, portMAX_DELAY);
+
+    for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
+        EventFilter *filter = &eventFilters[i];
+        if (filter->event != event) { continue; }
+        if (filter->panel != panel) { continue; }
+
+        EventDispatch event = { 0 };
+
+        event.callback = filter->callback;
+        event.arg = filter->arg;
+
+        event.payload.event = filter->event;
+        event.payload.eventId = filter->id;
+        event.payload.props.panelEvent.panelId = panel->id;;
+
+        xQueueSendToBack(panel->events, &event, 0);
+    }
+
+    xSemaphoreGive(lockEvents);
+}
+
+
 
 
 // Caller must own the lockEvents mutex
@@ -274,7 +330,7 @@ static void animatePixie(FfxScene scene, FfxNode mover, FfxSceneActionStop stopA
 
     // On first animation, fast forward to a random time in its life
     if (stopAction == FfxSceneActionStopFinal) {
-        uint32_t advance = duration / (esp_random() % 100);
+        uint32_t advance = duration * (esp_random() % 100) / 100;
         ffx_scene_advanceAnimations(mover, advance);
         ffx_scene_advanceAnimations(pixie, advance);
     }
@@ -525,7 +581,7 @@ static void taskIoFunc(void* pvParameter) {
 
             // Latch the keypad values de-bouncing with the inter-frame samples
             keypad_latch(keypad);
-
+/*
             if (keypad_didChange(keypad, KeyAll)) {
                 printf("KEYS: CHANGE=%4x SW1=%d SW2=%d SW3=%d SW4=%d\n",
                   keypad_didChange(keypad, KeyAll),
@@ -534,7 +590,7 @@ static void taskIoFunc(void* pvParameter) {
                   keypad_isDown(keypad, KeyNorth),
                   keypad_isDown(keypad, KeySouth));
             }
-
+*/
             // Check for holding the reset sequence to start a timer
             if (keypad_didChange(keypad, KeyAll)) {
                 if (keypad_read(keypad) == KeyReset) {
@@ -577,24 +633,19 @@ static void taskIoFunc(void* pvParameter) {
 }
 
 
+static void _panelFocus(FfxScene scene, FfxNode node,
+  FfxSceneActionStop stopType) {
+    emitPanelEvents(EventNamePanelFocus, activePanel);
+}
 
 static void _panelInit(void *_arg) {
     // Copy the PanelInit so we can unblock the caller and it can
     // free this from its stack (by returning)
-    PanelInit init = NULL;
-    size_t stateSize = 0;
-    int panelId = 0;
-    void* arg;
-    {
-        _PanelInit *panelInit = _arg;
-        init = panelInit->init;
-        panelId = panelInit->id;
-        stateSize = panelInit->stateSize ? panelInit->stateSize: 1;
-        arg = panelInit->arg;
-        panelInit->ready = 1;
-    }
+
+    _PanelInit *panelInit = _arg;
 
     // Create the panel state
+    size_t stateSize = panelInit->stateSize ? panelInit->stateSize: 1;
     uint8_t state[stateSize];
     memset(state, 0, stateSize);
 
@@ -605,36 +656,85 @@ static void _panelInit(void *_arg) {
       sizeof(EventDispatch), eventStore, &eventQueue);
     assert(events != NULL);
 
+    FfxPoint pNewStart = { 0 };
+    FfxPoint pNewEnd = { 0 };
+    FfxPoint pOldEnd = { 0 };
+    switch (panelInit->style) {
+        case PanelStyleInstant:
+            break;
+        case PanelStyleCoverUp:
+            pNewStart.y = 240;
+            break;
+        case PanelStyleSlideLeft:
+            pOldEnd.x = -240;
+            pNewStart.x = 240;
+            break;
+    }
+
     FfxNode node = ffx_scene_createGroup(scene);
     ffx_scene_appendChild(ffx_scene_root(scene), node);
 
+    if (pNewStart.x != 0 || pNewStart.y != 0) {
+        ffx_scene_nodeSetPosition(node, pNewStart);
+    }
+
+    PanelContext *oldPanel = activePanel;
+
     // Create the App context (attached to the task tag)
-    PanelContext context = { 0 };
-    context.id = panelId;
-    context.state = state;
-    context.events = events;
-    context.node = node;
-    vTaskSetApplicationTaskTag(NULL, (void*)&context);
+    PanelContext panel = { 0 };
+    panel.id = panelInit->id;;
+    panel.state = state;
+    panel.events = events;
+    panel.node = node;
+    panel.parent = activePanel;
+    panel.style = panelInit->style;
+    vTaskSetApplicationTaskTag(NULL, (void*)&panel);
+
+    activePanel = &panel;
+
+    panelInit->ready = 1;
 
     // Initialize the Panel
-    init(scene, context.node, context.state, arg);
+    panelInit->init(scene, panel.node, panel.state, panelInit->arg);
+
+    if (oldPanel && (pOldEnd.x != 0 || pOldEnd.y != 0)) {
+        if (PanelStyleInstant) {
+            ffx_scene_nodeSetPosition(oldPanel->node, pOldEnd);
+        } else {
+            ffx_scene_nodeAnimatePosition(scene, oldPanel->node, pOldEnd,
+              300, FfxCurveEaseOutQuad, NULL);
+        }
+    }
+
+    if (pNewStart.x != pNewEnd.x || pNewStart.y != pNewEnd.y) {
+        if (PanelStyleInstant) {
+            ffx_scene_nodeSetPosition(node, pNewEnd);
+            emitPanelEvents(EventNamePanelFocus, activePanel);
+        } else {
+            ffx_scene_nodeAnimatePosition(scene, node, pNewEnd, 300,
+              FfxCurveEaseOutQuad, _panelFocus);
+        }
+    } else {
+        emitPanelEvents(EventNamePanelFocus, activePanel);
+    }
 
     // Begin the event loop
     EventDispatch dispatch = { 0 };
     while (1) {
         BaseType_t result = xQueueReceive(events, &dispatch, 1000);
-        if (result != pdPASS) {
-            printf("No task events\n");
-            continue;
-        }
+        if (result != pdPASS) { continue; }
 
         dispatch.callback(dispatch.payload, dispatch.arg);
     }
 }
 
-void panel_push(PanelInit init, size_t stateSize, void *arg) {
-    static int nextPanelId = 1;
+void panel_push(PanelInit init, size_t stateSize, PanelStyle style, void *arg) {
 
+    if (activePanel) {
+        emitPanelEvents(EventNamePanelBlur, activePanel);
+    }
+
+    static int nextPanelId = 1;
     int panelId = nextPanelId++;
 
     char name[configMAX_TASK_NAME_LEN];
@@ -644,15 +744,82 @@ void panel_push(PanelInit init, size_t stateSize, void *arg) {
     _PanelInit panelInit = { 0 };
     panelInit.id = panelId;
     panelInit.init = init;
+    panelInit.style = style;
     panelInit.stateSize = stateSize;
     panelInit.arg = arg;
 
-    BaseType_t status = xTaskCreatePinnedToCore(&_panelInit, name, 8192 * 4,
-      &panelInit, 1, &handle, 0);
+    BaseType_t status = xTaskCreatePinnedToCore(&_panelInit, name,
+      4096 + stateSize, &panelInit, 1, &handle, 0);
         printf("[main] init panel task: status=%d\n", status);
         assert(handle != NULL);
 
     while (!panelInit.ready) { delay(2); } // ?? Maybe use event?
+}
+
+static void _panelBlur(FfxScene scene, FfxNode node,
+  FfxSceneActionStop stopType) {
+
+    // Remove the node from the scene graph
+    ffx_scene_nodeFree(node);
+
+    emitPanelEvents(EventNamePanelFocus, activePanel);
+}
+
+const FfxPoint pointZero = { 0 };
+
+void panel_pop() {
+    PanelContext *panel = (void*)xTaskGetApplicationTaskTag(NULL);
+
+    // Remove all existing events
+
+    xSemaphoreTake(lockEvents, portMAX_DELAY);
+
+    for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
+        EventFilter *filter = &eventFilters[i];
+        if (filter->panel != panel) { continue; }
+        filter->event = 0;
+    }
+
+    xSemaphoreGive(lockEvents);
+
+    activePanel = panel->parent;
+
+    FfxPoint *pNewStart = ffx_scene_nodePosition(activePanel->node);
+    if (panel->style == PanelStyleInstant) {
+        pNewStart->x = pNewStart->y = 0;
+        _panelBlur(scene, panel->node, FfxSceneActionStopFinal);
+
+    } else {
+
+        FfxPoint pOldEnd = { 0 };
+        switch (panel->style) {
+            case PanelStyleInstant:
+                assert(0);
+                break;
+            case PanelStyleCoverUp:
+                pOldEnd.y = 240;
+                break;
+            case PanelStyleSlideLeft:
+                pOldEnd.x = 240;
+                break;
+        }
+
+        // Animate the popped active reverse how it arrived
+        FfxPoint *pOldStart = ffx_scene_nodePosition(panel->node);
+        if (pOldStart->x != pOldEnd.x || pOldStart->y != pOldEnd.y) {
+            ffx_scene_nodeAnimatePosition(scene, panel->node, pOldEnd,
+              300, FfxCurveEaseInQuad, _panelBlur);
+        } else {
+            _panelBlur(scene, panel->node, FfxSceneActionStopFinal);
+        }
+
+        if (pNewStart->x != 0 || pNewStart->y != 0) {
+            ffx_scene_nodeAnimatePosition(scene, activePanel->node, pointZero,
+              300, FfxCurveEaseInQuad, NULL);
+        }
+    }
+
+    vTaskDelete(NULL);
 }
 
 void app_main() {
@@ -660,8 +827,6 @@ void app_main() {
 
     TaskHandle_t taskIoHandle = NULL;
     TaskHandle_t taskBleHandle = NULL;
-
-    printf("Hello world!\n");
 
     StaticSemaphore_t lockEventsBuffer;
     lockEvents = xSemaphoreCreateBinaryStatic(&lockEventsBuffer);
@@ -706,7 +871,8 @@ void app_main() {
     // has high-priority. Don't doddle.
     // @TODO: should we start a short-lived low-priority task to start this?
     //app_push(panelMenuInit, sizeof(PanelMenuState), NULL);
-    pushPanelSpace(NULL);
+    //pushPanelSpace(NULL);
+    pushPanelMenu(NULL);
 
     while (1) {
         printf("[main] high-water: boot=%d io=%d, ble=%d freq=%ld\n",
