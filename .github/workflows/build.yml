@@ -16,7 +16,7 @@ jobs:
       run: echo $UID
     - name: Build pixie-firmware using Docker
       run: |
-        docker run --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
+        docker run -m 1g --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
     - name: Verify assets
       run: |
         ls -l ${{ github.workspace }}/build/pixie.bin
