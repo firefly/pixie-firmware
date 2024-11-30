@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      MAX_MEMORY_SIZE: '300m'
+      MAX_MEMORY_SIZE: '400m'
     steps:
     - name: Checkout pixie-firmware
       uses: actions/checkout@v3
