@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      MAX_MEMORY_SIZE: '100m'
+      MAX_MEMORY_SIZE: '300m'
     steps:
     - name: Checkout pixie-firmware
       uses: actions/checkout@v3
@@ -31,12 +31,19 @@ jobs:
         MAX_MEMORY_SIZE: ${{ inputs.memory }}
       run: echo $MAX_MEMORY_SIZE
     - name: Build pixie-firmware using Docker
+      id: build
       run: |
         echo $MAX_MEMORY_SIZE
         docker run -m $MAX_MEMORY_SIZE --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
+      continue-on-error: true
     - name: Verify assets
+      if: steps.build.outcome == 'success'
       run: |
         ls -l ${{ github.workspace }}/build/pixie.bin
         ls -l ${{ github.workspace }}/build/bootloader/bootloader.bin
         ls -l ${{ github.workspace }}/build/partition_table/partition-table.bin
-  
+    - name: Output error
+      if: steps.build.outcome != 'success'
+      run: |
+        cat /project/build/log/idf_py_stderr_output*
+        cat /project/build/log/idf_py_stdout_output*
