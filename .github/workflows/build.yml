@@ -20,7 +20,7 @@ jobs:
         ref: chore/add-submodules
         submodules: 'recursive'
     - name: Setup node version
-    - uses: actions/setup-node@v4
+      uses: actions/setup-node@v4
       with:
         node-version: 20
     - name: Verify user
@@ -38,5 +38,4 @@ jobs:
         ls -l ${{ github.workspace }}/build/pixie.bin
         ls -l ${{ github.workspace }}/build/bootloader/bootloader.bin
         ls -l ${{ github.workspace }}/build/partition_table/partition-table.bin
-        
   
