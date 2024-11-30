@@ -2,21 +2,36 @@ name: Build
 on: 
   push:
   workflow_dispatch:
+    inputs:
+      memory:
+        description: 'Max memory size available to docker'
+        required: true
+        default: '1g'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      MAX_MEMORY_SIZE: '1g'
     steps:
     - name: Checkout pixie-firmware
       uses: actions/checkout@v3
       with:
         ref: chore/add-submodules
         submodules: 'recursive'
+    - name: Setup node version
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
     - name: Verify user
       run: echo $UID
+    - name: Set maximum memory for 'workflow_dispatch' trigger
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        MAX_MEMORY_SIZE: ${{ inputs.memory }}
     - name: Build pixie-firmware using Docker
       run: |
-        docker run -m 1g --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
+        docker run -m ${{ MAX_MEMORY_SIZE }} --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
     - name: Verify assets
       run: |
         ls -l ${{ github.workspace }}/build/pixie.bin
