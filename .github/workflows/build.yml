@@ -29,6 +29,7 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       env:
         MAX_MEMORY_SIZE: ${{ inputs.memory }}
+      run: echo $MAX_MEMORY_SIZE
     - name: Build pixie-firmware using Docker
       run: |
         docker run -m ${{ MAX_MEMORY_SIZE }} --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
