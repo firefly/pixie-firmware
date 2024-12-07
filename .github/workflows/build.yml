@@ -23,19 +23,16 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20
-    - name: Verify user
-      run: echo $UID
     - name: Set maximum memory for 'workflow_dispatch' trigger
       if: github.event_name == 'workflow_dispatch'
       env:
         MAX_MEMORY_SIZE: ${{ inputs.memory }}
       run: echo $MAX_MEMORY_SIZE
-    - name: Check for scene and display components
+    - name: Verify scene and display components
       run: |
         ls -la ${{ github.workspace }}/components/firefly-display
         ls -la ${{ github.workspace }}/components/firefly-scene
         git submodule status
-        grep -r "panel_sendReply" *
     - name: Build pixie-firmware using Docker
       id: build
       run: |
