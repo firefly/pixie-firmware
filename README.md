@@ -30,7 +30,7 @@ git pull --recurse-submodules
 
 Use [docker](https://docs.docker.com/engine/install) to build the project:
 ```sh
-docker run --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
+docker run --rm -v $PWD:/project -w /project -e HOME=/tmp espressif/idf idf.py build
 ```
 
 
