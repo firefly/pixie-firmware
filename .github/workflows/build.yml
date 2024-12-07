@@ -30,6 +30,10 @@ jobs:
       env:
         MAX_MEMORY_SIZE: ${{ inputs.memory }}
       run: echo $MAX_MEMORY_SIZE
+    - name: Check for scene and display components
+      run: |
+        ls -la ${{ github.workspace }}/components/firefly-display
+        ls -la ${{ github.workspace }}/components/firefly-scene
     - name: Build pixie-firmware using Docker
       id: build
       run: |
