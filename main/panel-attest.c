@@ -69,7 +69,7 @@ static void onMessage(EventPayload event, void *_state) {
             return;
         }
 
-        int r = panel_sendReply(&attest, 512);
+        int r = panel_sendReply((uint8_t*)&attest, 512);
         printf("Reply: %d %d\n", sizeof(attest), r);
     }
 }
