@@ -33,6 +33,21 @@ Use [docker](https://docs.docker.com/engine/install) to build the project:
 docker run --rm -v $PWD:/project -w /project -e HOME=/tmp espressif/idf idf.py build
 ```
 
+Troubleshooting
+---------------
+
+1. If you get `error: implicit declaration of function x; did you mean function y? [-Wimplicit-function-declaration]`, check and update the `firefly-scene` and `firefly-display` submodules in the components folder:
+
+```sh
+# check the submodules are from the correct branch
+git submodule status
+
+# update the submodules
+git submodule update --init --recursive
+
+# pull submodules changes from the remote repositories
+git pull --recurse-submodules
+```
 
 
 Hardware Specifications
