@@ -35,6 +35,7 @@ jobs:
         ls -la ${{ github.workspace }}/components/firefly-display
         ls -la ${{ github.workspace }}/components/firefly-scene
         git submodule status
+        grep -r "panel_sendReply" *
     - name: Build pixie-firmware using Docker
       id: build
       run: |
