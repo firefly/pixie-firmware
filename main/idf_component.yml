@@ -1,9 +1,0 @@
-dependencies:
-  idf:
-    version: ">=4.1.0"
-
-  firefly-display:
-    path: ../components/firefly-display
-
-  firefly-scene:
-    path: ../components/firefly-scene
