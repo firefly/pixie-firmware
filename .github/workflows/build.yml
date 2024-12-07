@@ -1,6 +1,7 @@
 name: Build
-on: 
+on:
   push:
+  pull_request:
   workflow_dispatch:
     inputs:
       memory:
@@ -17,7 +18,6 @@ jobs:
     - name: Checkout pixie-firmware
       uses: actions/checkout@v3
       with:
-        ref: chore/add-submodules
         submodules: 'recursive'
     - name: Setup node version
       uses: actions/setup-node@v4
