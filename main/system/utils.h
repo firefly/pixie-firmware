@@ -1,12 +1,11 @@
-
 #ifndef __UTILS_H__
 #define __UTILS_H__
-
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+#include <stdint.h>
 
 /////////////////////////////
 // Timer functions
@@ -17,6 +16,7 @@ uint32_t ticks();
 // Delay %duration% ms
 void delay(uint32_t duration);
 
+char* taskName();
 
 #ifdef __cplusplus
 }

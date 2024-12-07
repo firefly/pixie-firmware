@@ -1,13 +1,16 @@
 idf_component_register(
   SRCS
-    "pixie_main.c"
-    "system/ble.c"
+    "main.c"
+    "keypad.c"
+    "panel-attest.c"
+    "panel-gifs.c"
+    "panel-menu.c"
+    "panel-space.c"
+    "task-ble.c"
     "system/device-info.c"
-    "system/keypad.c"
     "system/pixels.c"
     "system/utils.c"
-    "utils/data.c"
-    "utils/rlp.c"
-  INCLUDE_DIRS ""
+    "utils/cbor.c"
+  INCLUDE_DIRS
+    ""
 )
-
