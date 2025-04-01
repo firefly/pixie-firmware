@@ -26,8 +26,10 @@ static CborType _getType(uint8_t header) {
     switch(header >> 5) {
         case 0:
             return CborTypeNumber;
-        case 2: case 3:
+        case 2:
             return CborTypeData;
+        case 3:
+            return CborTypeString;
         case 4:
             return CborTypeArray;
         case 5:
@@ -154,7 +156,9 @@ CborStatus cbor_getData(CborCursor *cursor, uint8_t *output, size_t length) {
     uint8_t *data = _getBytes(cursor, &type, &value, &safe, &headLen, &status);
     if (data == NULL) { return status; }
 
-    if (type != CborTypeData) { return CborStatusInvalidOperation; }
+    if (type != CborTypeData && type != CborTypeString) {
+        return CborStatusInvalidOperation;
+    }
 
     // Would read beyond our data
     if (value > safe) { return CborStatusBufferOverrun; }
@@ -195,7 +199,8 @@ CborStatus cbor_getLength(CborCursor *cursor, size_t *count) {
         // Should never happen
         case CborTypeError:
             return CborStatusUnsupportedType;
-        case CborTypeData: case CborTypeArray: case CborTypeMap:
+        case CborTypeData: case CborTypeString:
+        case CborTypeArray: case CborTypeMap:
             return CborStatusOK;
         default:
             break;
@@ -227,7 +232,7 @@ CborStatus _cbor_next(CborCursor *cursor) {
             cursor->offset += headLen;
             break;
 
-        case CborTypeData:
+        case CborTypeData: case CborTypeString:
             cursor->offset += headLen + value;
             break;
     }
@@ -243,6 +248,7 @@ CborStatus cbor_firstValue(CborCursor *cursor, CborCursor *key) {
     uint8_t *data = _getBytes(cursor, &type, &value, &safe, &headLen, &status);
     if (data == NULL) { return status; }
 
+    if (value == 0) { return CborStatusNotFound; }
     if (value > 0xffffff) { return CborStatusOverflow; }
 
     CborCursor follow;
@@ -281,6 +287,9 @@ CborStatus cbor_nextValue(CborCursor *cursor, CborCursor *key) {
         hasKey = true;
         count *= -1;
     }
+
+    if (cursor->containerIndex + 1 == count) { return CborStatusNotFound; }
+    cursor->containerIndex++;
 
     CborCursor follow;
     cbor_clone(&follow, cursor);
@@ -389,4 +398,94 @@ CborStatus cbor_followIndex(CborCursor *cursor, size_t index) {
     cbor_clone(cursor, &follow);
 
     return CborStatusOK;
+}
+
+void _dump(CborCursor *cursor) {
+    CborType type = _getType(cursor->data[cursor->offset]);
+
+
+    switch(type) {
+        case CborTypeNumber: {
+            uint64_t value;
+            cbor_getValue(cursor, &value);
+            printf("%lld", value);
+            break;
+        }
+
+        case CborTypeString: {
+            size_t count;
+            cbor_getLength(cursor, &count);
+            char data[count];
+            cbor_getData(cursor, (uint8_t*)data, count);
+
+            printf("\"");
+            for (int i = 0; i < count; i++) {
+                char c = data[i];
+                if (c == '\n') {
+                    printf("\\n");
+                } else if (c < 32 || c >= 127) {
+                    printf("\\%0x2", c);
+                } else if (c == '"') {
+                    printf("\\\"");
+                } else {
+                    printf("%c", c);
+                }
+            }
+            printf("\"");
+            break;
+        }
+
+        case CborTypeData: {
+            size_t count;
+            cbor_getLength(cursor, &count);
+            uint8_t data[count];
+            cbor_getData(cursor, data, count);
+
+            printf("0x");
+            for (int i = 0; i < count; i++) { printf("%02x", data[i]); }
+            break;
+        }
+
+        case CborTypeArray:
+            printf("<ARRAY: not impl>");
+            break;
+
+        case CborTypeMap: {
+            printf("{ ");
+            bool first = true;
+            CborCursor follow, followKey;
+            cbor_clone(&follow, cursor);
+            CborStatus status = cbor_firstValue(&follow, &followKey);
+            while (status == CborStatusOK) {
+                if (!first) { printf(", "); }
+                first = false;
+                _dump(&followKey);
+                printf(": ");
+                _dump(&follow);
+                status = cbor_nextValue(&follow, &followKey);
+            }
+
+            printf(" }");
+            break;
+        }
+
+        case CborTypeBoolean: {
+            uint64_t value;
+            cbor_getValue(cursor, &value);
+            printf("%s", value ? "true": "false");
+            break;
+        }
+
+        case CborTypeNull:
+            printf("null");
+            break;
+
+        default:
+            printf("ERROR");
+    }
+}
+
+void cbor_dump(CborCursor *cursor) {
+    _dump(cursor);
+    printf("\n");
 }

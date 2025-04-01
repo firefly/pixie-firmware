@@ -21,7 +21,7 @@ typedef struct CborCusror {
     size_t offset;
 
     // The containerCount is used while traversing a map or array.
-    // - a negative size indicates a map contains,
+    // - a negative size indicates a map container
     // - a positive size indicates an array container
     // - 0 indicates this is not a container
     int32_t containerCount;
@@ -35,9 +35,10 @@ typedef enum CborType {
     CborTypeNull     = 1,
     CborTypeBoolean  = 2,
     CborTypeNumber   = 3,
-    CborTypeData     = 4,
-    CborTypeArray    = 5,
-    CborTypeMap      = 6
+    CborTypeString   = 4,
+    CborTypeData     = 5,
+    CborTypeArray    = 6,
+    CborTypeMap      = 7
 } CborType;
 
 typedef enum CborStatus {
@@ -99,6 +100,7 @@ CborStatus cbor_nextValue(CborCursor *cursor, CborCursor *key);
 CborStatus _cbor_next(CborCursor *cursor);
 //uint8_t* cbor_raw(CborCursor *cursor, uint8_t *type, uint64_t *count);
 
+void cbor_dump(CborCursor *cursor);
 
 
 #ifdef __cplusplus
