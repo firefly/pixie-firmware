@@ -8,19 +8,9 @@
 // DEBUG
 #include <stdio.h>
 
-// @TODO: Check obsolete for previous code
 
-void cbor_init(CborCursor *cursor, uint8_t *data, size_t length) {
-    cursor->data = data;
-    cursor->length = length;
-    cursor->offset = 0;
-    cursor->containerCount = 0;
-    cursor->containerIndex = 0;
-}
-
-void cbor_clone(CborCursor *dst, CborCursor *src) {
-    memcpy(dst, src, sizeof(CborCursor));
-}
+///////////////////////////////
+// Crawler - utils
 
 static CborType _getType(uint8_t header) {
     switch(header >> 5) {
@@ -44,15 +34,6 @@ static CborType _getType(uint8_t header) {
             break;
     }
     return CborTypeError;
-}
-
-bool cbor_isDone(CborCursor *cursor) {
-    return (cursor->offset == cursor->length);
-}
-
-CborType cbor_getType(CborCursor *cursor) {
-    if (cursor->offset >= cursor->length) { return CborTypeError; }
-    return _getType(cursor->data[cursor->offset]);
 }
 
 static uint8_t* _getBytes(CborCursor *cursor, CborType *type,
@@ -126,6 +107,31 @@ static uint8_t* _getBytes(CborCursor *cursor, CborType *type,
     *safe -= count;
 
     return data;
+}
+
+
+///////////////////////////////
+// Crawler
+
+void cbor_init(CborCursor *cursor, uint8_t *data, size_t length) {
+    cursor->data = data;
+    cursor->length = length;
+    cursor->offset = 0;
+    cursor->containerCount = 0;
+    cursor->containerIndex = 0;
+}
+
+void cbor_clone(CborCursor *dst, CborCursor *src) {
+    memcpy(dst, src, sizeof(CborCursor));
+}
+
+bool cbor_isDone(CborCursor *cursor) {
+    return (cursor->offset == cursor->length);
+}
+
+CborType cbor_getType(CborCursor *cursor) {
+    if (cursor->offset >= cursor->length) { return CborTypeError; }
+    return _getType(cursor->data[cursor->offset]);
 }
 
 CborStatus cbor_getValue(CborCursor *cursor, uint64_t *value) {
@@ -329,7 +335,7 @@ CborStatus cbor_nextValue(CborCursor *cursor, CborCursor *key) {
     return CborStatusOK;
 }
 
-bool _keyCompare(const char *key, CborCursor *cursor) {
+static bool _keyCompare(const char *key, CborCursor *cursor) {
     size_t sLen = strlen(key);
 
     size_t cLen = 0;
@@ -400,9 +406,8 @@ CborStatus cbor_followIndex(CborCursor *cursor, size_t index) {
     return CborStatusOK;
 }
 
-void _dump(CborCursor *cursor) {
+static void _dump(CborCursor *cursor) {
     CborType type = _getType(cursor->data[cursor->offset]);
-
 
     switch(type) {
         case CborTypeNumber: {
@@ -488,4 +493,162 @@ void _dump(CborCursor *cursor) {
 void cbor_dump(CborCursor *cursor) {
     _dump(cursor);
     printf("\n");
+}
+
+///////////////////////////////
+// Builder - utils
+
+static CborStatus _appendHeader(CborBuilder *builder, CborType type,
+  uint64_t value) {
+
+    size_t remaining = builder->length - builder->offset;
+
+    if (value < 23) {
+        if (remaining < 1) { return CborStatusBufferOverrun; }
+        builder->data[builder->offset++] = (type << 5) | value;
+        return CborStatusOK;
+    }
+
+    // Convert to 8 bytes
+    size_t offset = 7;
+    uint8_t bytes[8] = { 0 };
+    for (int i = 7; i >= 0; i--) {
+        uint64_t v = (value >> (uint64_t)(56 - (i * 8))) & 0xff;
+        bytes[i] = v;
+        if (v) { offset = i; }
+    }
+
+    // Align the offset to the closest power-of-two within bytes
+    uint8_t counts[] = { 27, 27, 27, 27, 26, 26, 25, 24 };
+    uint8_t count = counts[offset];
+    offset = 8 - (1 << (count - 24));
+
+    if (remaining < 1 + (8 - offset)) { return CborStatusBufferOverrun; }
+
+    builder->data[builder->offset++] = (type << 5) | count;
+    for (int i = offset; i < 8; i++) {
+        builder->data[builder->offset++] = bytes[i];
+    }
+
+    return CborStatusOK;
+}
+
+
+///////////////////////////////
+// Builder
+
+void cbor_build(CborBuilder *builder, uint8_t *data, size_t length) {
+    builder->data = data;
+    builder->length = length;
+    builder->offset = 0;
+}
+
+size_t cbor_getBuildLength(CborBuilder *builder) {
+    return builder->offset;
+}
+
+CborStatus cbor_appendBoolean(CborBuilder *builder, bool value) {
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < 1) { return CborStatusBufferOverrun; }
+    builder->data[builder->offset++] = (7 << 5) | (value ? 21: 20);
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendNull(CborBuilder *builder) {
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < 1) { return CborStatusBufferOverrun; }
+    builder->data[builder->offset++] = (7 << 5) | 22;
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendNumber(CborBuilder *builder, uint64_t value) {
+    return _appendHeader(builder, 0, value);
+}
+
+CborStatus cbor_appendData(CborBuilder *builder, uint8_t *data, size_t length) {
+    CborStatus status = _appendHeader(builder, 2, length);
+    if (status) { return status; }
+
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < length) { return CborStatusBufferOverrun; }
+
+    for (int i = 0; i < length; i++) {
+        builder->data[builder->offset++] = data[i];
+    }
+
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendString(CborBuilder *builder, char* str) {
+    size_t length = strlen(str);
+
+    CborStatus status = _appendHeader(builder, 3, length);
+    if (status) { return status; }
+
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < length) { return CborStatusBufferOverrun; }
+
+    for (int i = 0; i < length; i++) {
+        builder->data[builder->offset++] = str[i];
+    }
+
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendArray(CborBuilder *builder, size_t count) {
+    return _appendHeader(builder, 4, count);
+}
+
+CborStatus cbor_appendMap(CborBuilder *builder, size_t count) {
+    return _appendHeader(builder, 5, count);
+}
+
+CborStatus cbor_appendArrayMutable(CborBuilder *builder, CborBuilderTag *tag) {
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < 3) { return CborStatusBufferOverrun; }
+
+    builder->data[builder->offset++] = (4 << 5) | 25;
+
+    *tag = builder->offset;
+
+    builder->data[builder->offset++] = 0;
+    builder->data[builder->offset++] = 0;
+
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendMapMutable(CborBuilder *builder, CborBuilderTag *tag) {
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < 3) { return CborStatusBufferOverrun; }
+
+    builder->data[builder->offset++] = (5 << 5) | 25;
+
+    *tag = builder->offset;
+
+    builder->data[builder->offset++] = 0;
+    builder->data[builder->offset++] = 0;
+
+    return CborStatusOK;
+}
+
+void cbor_adjustCount(CborBuilder *builder, CborBuilderTag tag,
+  uint16_t count) {
+    builder->data[tag++] = (count >> 16) & 0xff;
+    builder->data[tag++] = count & 0xff;
+}
+
+CborStatus cbor_appendCborRaw(CborBuilder *builder, uint8_t *data,
+  size_t length) {
+
+    size_t remaining = builder->length - builder->offset;
+    if (remaining < length) { return CborStatusBufferOverrun; }
+
+    memcpy(&builder->data[builder->offset], data, length);
+    builder->offset += length;
+
+    return CborStatusOK;
+}
+
+CborStatus cbor_appendCborBuilder(CborBuilder *dst, CborBuilder *src) {
+    return cbor_appendCborRaw(dst, src->data, src->offset);
 }
