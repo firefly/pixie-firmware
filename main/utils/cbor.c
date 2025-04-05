@@ -607,12 +607,8 @@ CborStatus cbor_appendData(CborBuilder *builder, uint8_t *data, size_t length) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < length) { return CborStatusBufferOverrun; }
 
-    //for (int i = 0; i < length; i++) {
-    //    builder->data[builder->offset++] = data[i];
-    //}
-    size_t offset = builder->offset;
-    memmove(&builder->data[offset], data, length);
-    builder->offset = offset + length;
+    memmove(&builder->data[builder->offset], data, length);
+    builder->offset += length;
 
     return CborStatusOK;
 }
@@ -626,12 +622,8 @@ CborStatus cbor_appendString(CborBuilder *builder, char* str) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < length) { return CborStatusBufferOverrun; }
 
-    //for (int i = 0; i < length; i++) {
-    //    builder->data[builder->offset++] = str[i];
-    //}
-    size_t offset = builder->offset;
-    memmove(&builder->data[offset], str, length);
-    builder->offset = offset + length;
+    memmove(&builder->data[builder->offset], str, length);
+    builder->offset += length;
 
     return CborStatusOK;
 }
@@ -695,165 +687,3 @@ CborStatus cbor_appendCborBuilder(CborBuilder *dst, CborBuilder *src) {
     return cbor_appendCborRaw(dst, src->data, src->offset);
 }
 
-
-///////////////////////////////
-// RLP
-/*
-static size_t getByteCount(size_t value) {
-    if (value < 0x100) { return 1; }
-    if (value < 0x10000) { return 2; }
-    if (value < 0x1000000) { return 3; }
-    return 4;
-}
-
-static CborStatus appendByte(CborBuilder *rlp, uint8_t byte) {
-    size_t remaining = rlp->length - rlp->offset;
-    if (remaining < 1) { return CborStatusBufferOverrun; }
-    rlp->data[rlp->offset++] = byte;
-    return CborStatusOK;
-}
-
-static CborStatus appendBytes(CborBuilder *rlp, uint8_t *data, size_t length) {
-    size_t remaining = rlp->length - rlp->offset;
-    if (remaining < length) { return CborStatusBufferOverrun; }
-    memmove(&rlp->data[rlp->offset], data, length);
-    rlp->offset += length;
-    return CborStatusOK;
-}
-
-static CborStatus appendHeader(CborBuilder *rlp, uint8_t prefix, size_t size) {
-    if (size <= 55) { return appendByte(rlp, prefix + size); }
-
-    size_t byteCount = getByteCount(size);
-
-    CborStatus status = appendByte(rlp, prefix + 55 + byteCount);
-    if (status) { return status; }
-
-    for (int i = byteCount - 1; i >= 0; i--) {
-        status = appendByte(rlp, size >> (8 * byteCount));
-        if (status) { return status; }
-    }
-
-    return CborStatusOK;
-}
-
-static size_t rlpSize(CborCursor *_cursor);
-
-// Returns the RLP size of the sum of all array children
-static size_t rlpArraySize(CborCursor *_cursor) {
-    CborCursor cursor;
-    cbor_clone(&cursor, _cursor);
-
-    size_t size = 0;
-
-    CborStatus status = cbor_firstValue(&cursor, NULL);
-    if (status && status != CborStatusNotFound) { return 0; }
-
-    while (status == CborStatusOK) {
-        size_t l = rlpSize(&cursor);
-        if (l == 0) { return 0; }
-        size += l;
-
-        status = cbor_nextValue(&cursor, NULL);
-        if (status && status != CborStatusNotFound) { return 0; }
-    }
-
-    return size;
-}
-
-// Returns the RLP size
-static size_t rlpSize(CborCursor *_cursor) {
-    CborCursor cursor;
-    cbor_clone(&cursor, _cursor);
-
-    switch (cbor_getType(&cursor)) {
-
-        case CborTypeString: case CborTypeData: {
-            uint8_t *data = NULL;
-            size_t length = 0;
-            CborStatus status = cbor_getData(&cursor, &data, &length);
-            if (length == 1 && data[0] <= 127) { return 1; }
-            if (length < 55) { return 1 + length; }
-            return 1 + getByteCount(length) + length;
-        }
-
-        case CborTypeArray: {
-            size_t size = rlpArraySize(&cursor);
-            if (size <= 55) { return 1 + size; }
-            return 1 + getByteCount(size) + size;
-        }
-
-        default:
-            break;
-    }
-    return 0;
-}
-
-
-static CborStatus encode(CborCursor *_cursor, CborBuilder *rlp) {
-    CborCursor cursor;
-    cbor_clone(&cursor, _cursor);
-
-    switch (cbor_getType(&cursor)) {
-
-        case CborTypeString: case CborTypeData: {
-            uint8_t *data = NULL;
-            size_t length = 0;
-            CborStatus status = cbor_getData(&cursor, &data, &length);
-
-            if (length == 1 && data[0] <= 127) {
-                return appendByte(rlp, data[0]);
-            }
-
-            status = appendHeader(rlp, 0x80, length);
-            if (status) { return status; }
-
-            return appendBytes(rlp, data, length);
-        }
-
-        case CborTypeArray: {
-            size_t size = rlpArraySize(&cursor);
-
-            CborStatus status = appendHeader(rlp, 0xc0, size);
-            if (status) { return status; }
-
-            status = cbor_firstValue(&cursor, NULL);
-            if (status && status != CborStatusNotFound) { return 0; }
-
-            while (status == CborStatusOK) {
-                status = encode(&cursor, rlp);
-                if (status) { return status; }
-
-                status = cbor_nextValue(&cursor, NULL);
-                if (status && status != CborStatusNotFound) { return 0; }
-            }
-
-            return CborStatusOK;
-        }
-
-        default:
-            break;
-    }
-
-    return CborStatusUnsupportedType;
-}
-
-CborStatus cbor_encodeRlp(CborCursor *cursor, uint8_t *data, size_t *length) {
-    size_t offset = 0;
-
-    CborBuilder rlp = { 0 };
-    rlp.data = data;
-    rlp.length = *length;
-
-    CborStatus status = encode(cursor, &rlp);
-
-    // Failed to create RLP data
-    if(status) {
-        *length = 0;
-        return status;
-    }
-
-    *length = rlp.offset;
-    return CborStatusOK;
-}
-*/
