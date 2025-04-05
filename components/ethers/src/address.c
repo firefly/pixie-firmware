@@ -1,5 +1,7 @@
+#include <string.h>
 
 #include "firefly-address.h"
+#include "firefly-hash.h"
 
 
 void ffx_address_checksumAddress(uint8_t *address, char *checksumed) {
@@ -18,8 +20,8 @@ void ffx_address_checksumAddress(uint8_t *address, char *checksumed) {
     }
 
     // Hash the ASCII representation
-    uint8_t digest[KECCAK256_DIGEST_SIZE] = { 0 };
-    keccak256_hash(digest, (uint8_t*)checksumed, 40);
+    uint8_t digest[FFX_KECCAK256_DIGEST_LENGTH] = { 0 };
+    ffx_hash_keccak256(digest, (uint8_t*)checksumed, 40);
 
     // Uppercase any (alpha) nibble if the coresponding hash nibble >= 8
     for (int i = 0; i < 40; i += 2) {
@@ -33,4 +35,11 @@ void ffx_address_checksumAddress(uint8_t *address, char *checksumed) {
             checksumed[i + 1] -= 0x20;
         }
     }
+}
+
+void ffx_eth_computeAddress(uint8_t *pubkey, uint8_t *address) {
+    uint8_t hashed[32];
+    ffx_hash_keccak256(hashed, &pubkey[1], 64);
+
+    memcpy(address, &hashed[12], 20);
 }

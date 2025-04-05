@@ -23,40 +23,34 @@ extern "C" {
 #define FFX_SHARED_SECRET_LENGTH              (32)
 
 
-typedef enum FfxCryptoStatus {
-    FfxCryptoStatusOK      = 0,
-    FfxCryptoStatusError
-} FfxCryptoStatus;
-
-
-FfxCryptoStatus ffx_pk_signSecp256k1(uint8_t *privkey, uint8_t *digest,
+bool ffx_pk_signSecp256k1(uint8_t *privkey, uint8_t *digest,
   uint8_t *signature);
 
-FfxCryptoStatus ffx_pk_recoverPubkeySecp256k1(uint8_t *digest,
+bool ffx_pk_recoverPubkeySecp256k1(uint8_t *digest,
   uint8_t *signature, uint8_t *pubkey);
 
-FfxCryptoStatus ffx_pk_computePubkeySecp256k1(uint8_t *privkey,
+bool ffx_pk_computePubkeySecp256k1(uint8_t *privkey,
   uint8_t *pubkey);
 
 void ffx_pk_compressPubkeySecp256k1(uint8_t *pubkey, uint8_t *compPubkey);
 void ffx_pk_decompressPubkeySecp256k1(uint8_t *compPubkey, uint8_t *pubkey);
 
-FfxCryptoStatus ffx_pk_computeSharedSecretSecp256k1(uint8_t *privkey,
+bool ffx_pk_computeSharedSecretSecp256k1(uint8_t *privkey,
   uint8_t *otherPubkey, uint8_t *sharedSecret);
 
 
-FfxCryptoStatus ffx_pk_signP256(uint8_t *privkey, uint8_t *digest,
+bool ffx_pk_signP256(uint8_t *privkey, uint8_t *digest,
   uint8_t *signature);
 
-FfxCryptoStatus ecc_recoverPubkeyP256(uint8_t *digest, uint8_t *signature,
+bool ecc_recoverPubkeyP256(uint8_t *digest, uint8_t *signature,
   uint8_t *pubkey);
 
-FfxCryptoStatus ffx_pk_computePubkeyP256(uint8_t *privkey, uint8_t *pubkey);
+bool ffx_pk_computePubkeyP256(uint8_t *privkey, uint8_t *pubkey);
 
 void ffx_pk_compressPubkeyP256(uint8_t *pubkey, uint8_t *compPubkey);
 void ffx_pk_decompressPubkeyP256(uint8_t *compPubkey, uint8_t *pubkey);
 
-FfxCryptoStatus ffx_pk_computeSharedSecretP256(uint8_t *privkey,
+bool ffx_pk_computeSharedSecretP256(uint8_t *privkey,
   uint8_t *otherPubkey, uint8_t *sharedSecret);
 
 

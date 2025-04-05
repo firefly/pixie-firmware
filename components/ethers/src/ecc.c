@@ -49,8 +49,8 @@
 
 // #include "uECC.h"
 
-#define ECC_SUCCESS  (FfxCryptoStatusOK)
-#define ECC_ERROR    (FfxCryptoStatusError)
+#define ECC_SUCCESS  (true)
+#define ECC_ERROR    (false)
 
 struct uECC_Curve_t;
 typedef const struct uECC_Curve_t *uECC_Curve;
@@ -1252,10 +1252,10 @@ static int uECC_generate_random_int(uECC_word_t *random,
     return 0;
 }
 
-static int uECC_shared_secret(const uint8_t *public_key,
-                              const uint8_t *private_key,
-                              uint8_t *secret,
-                              uECC_Curve curve) {
+static bool uECC_shared_secret(const uint8_t *public_key,
+                               const uint8_t *private_key,
+                               uint8_t *secret,
+                               uECC_Curve curve) {
     uECC_word_t _public[uECC_MAX_WORDS * 2];
     uECC_word_t _private[uECC_MAX_WORDS];
 
@@ -1345,7 +1345,7 @@ static int uECC_valid_public_key(const uint8_t *public_key, uECC_Curve curve) {
     return uECC_valid_point(_public, curve);
 }
 
-static int uECC_compute_public_key(const uint8_t *private_key, uint8_t *public_key, uECC_Curve curve) {
+static bool uECC_compute_public_key(const uint8_t *private_key, uint8_t *public_key, uECC_Curve curve) {
     uECC_word_t _private[uECC_MAX_WORDS];
     uECC_word_t _public[uECC_MAX_WORDS * 2];
 
@@ -1541,12 +1541,12 @@ static void update_V(const uECC_HashContext *hash_context, uint8_t *K, uint8_t *
     * We generate a value for k (aka T) directly rather than converting endianness.
 
    Layout of hash_context->tmp: <K> | <V> | (1 byte overlapped 0x00 or 0x01) / <HMAC pad> */
-static int uECC_sign_deterministic(const uint8_t *private_key,
-                                   const uint8_t *message_hash,
-                                   unsigned hash_size,
-                                   const uECC_HashContext *hash_context,
-                                   uint8_t *signature,
-                                   uECC_Curve curve) {
+static bool uECC_sign_deterministic(const uint8_t *private_key,
+                                    const uint8_t *message_hash,
+                                    unsigned hash_size,
+                                    const uECC_HashContext *hash_context,
+                                    uint8_t *signature,
+                                    uECC_Curve curve) {
     // <RicMoo>
     // See: #51; not supporting secp160r1
     if (curve->num_bytes == 20) { return ECC_ERROR; }
@@ -1652,7 +1652,7 @@ static int uECC_sign_deterministic(const uint8_t *private_key,
 
         // <RicMoo>
         // See: #51
-        //if (uECC_sign_with_k(private_key, message_hash, hash_size, T, signature, curve)) {
+        //if (uECC_sign_with_k(private_key, message_hash, hash_size, T, signature, curve)) 
         if (uECC_sign_with_k(private_key, message_hash, hash_size, k, signature, curve)) {
             // </RicMoo>
             return ECC_SUCCESS;
@@ -1779,7 +1779,6 @@ static int uECC_verify(const uint8_t *public_key,
     return (int)(uECC_vli_equal(rx, r, num_words));
 }
 
-
 // <RicMoo>
 // Public Interface
 
@@ -1805,7 +1804,7 @@ static void finish_SHA256(const uECC_HashContext *base, uint8_t *hash_result) {
     ffx_hash_finalSha256(&context->ctx, hash_result);
 }
 
-FfxCryptoStatus ffx_pk_signSecp256k1(uint8_t *privkey, uint8_t *digest,
+bool ffx_pk_signSecp256k1(uint8_t *privkey, uint8_t *digest,
   uint8_t *signature) {
 
     uint8_t tmp[32 + 32 + 64];
@@ -1828,7 +1827,7 @@ FfxCryptoStatus ffx_pk_signSecp256k1(uint8_t *privkey, uint8_t *digest,
 //int32_t secp256k1_verify(uint8_t *digest, uint8_t *signature, uint8_t *publicKey) {
 //}
 
-FfxCryptoStatus ffx_pk_computePubkeySecp256k1(uint8_t *privkey,
+bool ffx_pk_computePubkeySecp256k1(uint8_t *privkey,
   uint8_t *pubkey) {
     return uECC_compute_public_key(privkey, pubkey, uECC_secp256k1());
 }
@@ -1841,14 +1840,14 @@ void ffx_pk_decompressPubkeySecp256k1(uint8_t *compPubkey, uint8_t *pubkey) {
     uECC_decompress(compPubkey, pubkey, uECC_secp256k1());
 }
 
-FfxCryptoStatus ffx_pk_computeSharedSecretSecp256k1(uint8_t *privkey,
+bool ffx_pk_computeSharedSecretSecp256k1(uint8_t *privkey,
   uint8_t *otherPubkey, uint8_t *sharedSecret) {
     return uECC_shared_secret(otherPubkey, privkey, sharedSecret,
       uECC_secp256k1());
 }
 
 
-FfxCryptoStatus ffx_pk_signP256(uint8_t *privkey, uint8_t *digest,
+bool ffx_pk_signP256(uint8_t *privkey, uint8_t *digest,
   uint8_t *signature) {
 
     uint8_t tmp[32 + 32 + 64];
@@ -1868,7 +1867,7 @@ FfxCryptoStatus ffx_pk_signP256(uint8_t *privkey, uint8_t *digest,
       uECC_secp256r1());
 }
 
-FfxCryptoStatus ffx_pk_computePublicKeyP256(uint8_t *privkey,
+bool ffx_pk_computePublicKeyP256(uint8_t *privkey,
   uint8_t *pubkey) {
     return uECC_compute_public_key(privkey, pubkey, uECC_secp256r1());
 }
@@ -1881,7 +1880,7 @@ void ffx_pk_decompressPubkeyP256(uint8_t *compPubkey, uint8_t *pubkey) {
     uECC_decompress(compPubkey, pubkey, uECC_secp256r1());
 }
 
-FfxCryptoStatus ffx_pk_computeSharedSecretP256(uint8_t *privkey,
+bool ffx_pk_computeSharedSecretP256(uint8_t *privkey,
   uint8_t *otherPubkey, uint8_t *sharedSecret) {
     return uECC_shared_secret(otherPubkey, privkey, sharedSecret,
       uECC_secp256r1());

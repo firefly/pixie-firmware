@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 #include <string.h>
 
 #include "firefly-cbor.h"
@@ -124,7 +124,7 @@ bool ffx_cbor_isDone(FfxCborCursor *cursor) {
     return (cursor->offset == cursor->length);
 }
 
-FfxCborType ffxcbor_getType(FfxCborCursor *cursor) {
+FfxCborType ffx_cbor_getType(FfxCborCursor *cursor) {
     if (cursor->offset >= cursor->length) { return FfxCborTypeError; }
     return _getType(cursor->data[cursor->offset]);
 }
