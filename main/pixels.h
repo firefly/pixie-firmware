@@ -36,7 +36,7 @@ void pixels_tick(PixelsContext context);
 /**
  *  Set the %%pixel%% to %%color%%.
  */
-void pixels_setColor(PixelsContext context, uint32_t pixel, color_ffxt color);
+void pixels_setPixel(PixelsContext context, uint32_t pixel, color_ffxt color);
 
 /**
  *  Animate the %%pixel%% with the %%pixelFunc%%, over %%duration%%,

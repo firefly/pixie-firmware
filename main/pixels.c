@@ -238,7 +238,7 @@ static void computeColor(color_ffxt *colors, uint32_t count,
             colors[0] = 0;
             break;
         case AnimationTypeStatic:
-            //colors[0] = action->color;
+            colors[0] = (color_ffxt)(action->arg);
             break;
         case AnimationTypeRepeat:
             repeat = 1;
@@ -359,6 +359,7 @@ void pixels_setPixel(PixelsContext _context, uint32_t pixel, color_ffxt color) {
 
     context->actions[pixel].func = NULL;
     context->actions[pixel].type = AnimationTypeStatic;
+    context->actions[pixel].arg = (void*)color;
 }
 
 void pixels_animatePixel(PixelsContext _context, uint32_t pixel,

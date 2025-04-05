@@ -7,9 +7,10 @@
 #include "esp_random.h"
 #include "nvs_flash.h"
 
+#include "firefly-hash.h"
+
+#include "device-info.h"
 #include "utils.h"
-#include "./device-info.h"
-#include "crypto/sha2.h"
 
 
 #define DEVICE_INFO_BLOCK   (EFUSE_BLK3)
@@ -182,10 +183,10 @@ DeviceStatus device_attest(uint8_t *challenge, DeviceAttestation *attest) {
     uint8_t hash[384] = { 0 };
     memset(hash, 0x42, sizeof(hash));
 
-    Sha256Context ctx;
-    sha2_initSha256(&ctx);
-    sha2_updateSha256(&ctx, attestation, sizeof(attestation));
-    sha2_finalSha256(&ctx, hash);
+    FfxSha256Context ctx;
+    ffx_hash_initSha256(&ctx);
+    ffx_hash_updateSha256(&ctx, attestation, sizeof(attestation));
+    ffx_hash_finalSha256(&ctx, hash);
     reverseBytes(hash, 32);
 
     uint8_t sig[384] = { 0 };
