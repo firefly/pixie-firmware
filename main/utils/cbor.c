@@ -4,7 +4,6 @@
 #include "./cbor.h"
 
 
-
 // DEBUG
 #include <stdio.h>
 
@@ -82,7 +81,7 @@ static uint8_t* _getBytes(CborCursor *cursor, CborType *type,
 
     // Indefinite lengths are not currently unsupported
     if (count > 27) {
-        *status = CborStatusUnsupportedValue;
+        *status = CborStatusUnsupportedType;
         return NULL;
     }
 
@@ -122,7 +121,7 @@ void cbor_init(CborCursor *cursor, uint8_t *data, size_t length) {
 }
 
 void cbor_clone(CborCursor *dst, CborCursor *src) {
-    memcpy(dst, src, sizeof(CborCursor));
+    memmove(dst, src, sizeof(CborCursor));
 }
 
 bool cbor_isDone(CborCursor *cursor) {
@@ -154,7 +153,36 @@ CborStatus cbor_getValue(CborCursor *cursor, uint64_t *value) {
     return CborStatusInvalidOperation;
 }
 
-CborStatus cbor_getData(CborCursor *cursor, uint8_t *output, size_t length) {
+// @TODO: refactor these 3 functions
+
+CborStatus cbor_getData(CborCursor *cursor, uint8_t **outData, size_t *length) {
+    *outData = NULL;
+    *length = 0;
+
+    CborType type = 0;
+    uint64_t value;
+    size_t safe = 0, headLen = 0;
+    CborStatus status = CborStatusOK;
+    uint8_t *data = _getBytes(cursor, &type, &value, &safe, &headLen, &status);
+    if (data == NULL) { return status; }
+
+    if (type != CborTypeData && type != CborTypeString) {
+        return CborStatusInvalidOperation;
+    }
+
+    // Would read beyond our data
+    if (value > safe) { return CborStatusBufferOverrun; }
+
+    // Only support lengths up to 16 bits
+    if (value > 0xffffffff) { return CborStatusOverflow; }
+
+    *outData = data;
+    *length = value;
+
+    return CborStatusOK;
+}
+
+CborStatus cbor_copyData(CborCursor *cursor, uint8_t *output, size_t length) {
     CborType type = 0;
     uint64_t value;
     size_t safe = 0, headLen = 0;
@@ -180,7 +208,8 @@ CborStatus cbor_getData(CborCursor *cursor, uint8_t *output, size_t length) {
         value = length;
     }
 
-    for (int i = 0; i < value; i++) { output[i] = data[i]; }
+    //for (int i = 0; i < value; i++) { output[i] = data[i]; }
+    memmove(output, data, value);
 
     return status;
 }
@@ -344,7 +373,7 @@ static bool _keyCompare(const char *key, CborCursor *cursor) {
     if (sLen != cLen) { return false; }
 
     char cStr[cLen];
-    cbor_getData(cursor, (uint8_t*)cStr, cLen);
+    cbor_copyData(cursor, (uint8_t*)cStr, cLen);
 
     for (int i = 0; i < sLen; i++) {
         if (key[i] != cStr[i]) { return false; }
@@ -421,7 +450,7 @@ static void _dump(CborCursor *cursor) {
             size_t count;
             cbor_getLength(cursor, &count);
             char data[count];
-            cbor_getData(cursor, (uint8_t*)data, count);
+            cbor_copyData(cursor, (uint8_t*)data, count);
 
             printf("\"");
             for (int i = 0; i < count; i++) {
@@ -444,7 +473,7 @@ static void _dump(CborCursor *cursor) {
             size_t count;
             cbor_getLength(cursor, &count);
             uint8_t data[count];
-            cbor_getData(cursor, data, count);
+            cbor_copyData(cursor, data, count);
 
             printf("0x");
             for (int i = 0; i < count; i++) { printf("%02x", data[i]); }
@@ -510,25 +539,27 @@ static CborStatus _appendHeader(CborBuilder *builder, CborType type,
     }
 
     // Convert to 8 bytes
-    size_t offset = 7;
+    size_t inset = 7;
     uint8_t bytes[8] = { 0 };
     for (int i = 7; i >= 0; i--) {
         uint64_t v = (value >> (uint64_t)(56 - (i * 8))) & 0xff;
         bytes[i] = v;
-        if (v) { offset = i; }
+        if (v) { inset = i; }
     }
 
     // Align the offset to the closest power-of-two within bytes
     uint8_t counts[] = { 27, 27, 27, 27, 26, 26, 25, 24 };
-    uint8_t count = counts[offset];
-    offset = 8 - (1 << (count - 24));
+    uint8_t count = counts[inset];
+    inset = 8 - (1 << (count - 24));
 
-    if (remaining < 1 + (8 - offset)) { return CborStatusBufferOverrun; }
+    if (remaining < 1 + (8 - inset)) { return CborStatusBufferOverrun; }
 
-    builder->data[builder->offset++] = (type << 5) | count;
-    for (int i = offset; i < 8; i++) {
-        builder->data[builder->offset++] = bytes[i];
+    size_t offset = builder->offset;
+    builder->data[offset++] = (type << 5) | count;
+    for (int i = inset; i < 8; i++) {
+        builder->data[offset++] = bytes[i];
     }
+    builder->offset = offset;
 
     return CborStatusOK;
 }
@@ -550,14 +581,18 @@ size_t cbor_getBuildLength(CborBuilder *builder) {
 CborStatus cbor_appendBoolean(CborBuilder *builder, bool value) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < 1) { return CborStatusBufferOverrun; }
-    builder->data[builder->offset++] = (7 << 5) | (value ? 21: 20);
+    size_t offset = builder->offset;
+    builder->data[offset++] = (7 << 5) | (value ? 21: 20);
+    builder->offset = offset;
     return CborStatusOK;
 }
 
 CborStatus cbor_appendNull(CborBuilder *builder) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < 1) { return CborStatusBufferOverrun; }
-    builder->data[builder->offset++] = (7 << 5) | 22;
+    size_t offset = builder->offset;
+    builder->data[offset++] = (7 << 5) | 22;
+    builder->offset = offset;
     return CborStatusOK;
 }
 
@@ -572,9 +607,12 @@ CborStatus cbor_appendData(CborBuilder *builder, uint8_t *data, size_t length) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < length) { return CborStatusBufferOverrun; }
 
-    for (int i = 0; i < length; i++) {
-        builder->data[builder->offset++] = data[i];
-    }
+    //for (int i = 0; i < length; i++) {
+    //    builder->data[builder->offset++] = data[i];
+    //}
+    size_t offset = builder->offset;
+    memmove(&builder->data[offset], data, length);
+    builder->offset = offset + length;
 
     return CborStatusOK;
 }
@@ -588,9 +626,12 @@ CborStatus cbor_appendString(CborBuilder *builder, char* str) {
     size_t remaining = builder->length - builder->offset;
     if (remaining < length) { return CborStatusBufferOverrun; }
 
-    for (int i = 0; i < length; i++) {
-        builder->data[builder->offset++] = str[i];
-    }
+    //for (int i = 0; i < length; i++) {
+    //    builder->data[builder->offset++] = str[i];
+    //}
+    size_t offset = builder->offset;
+    memmove(&builder->data[offset], str, length);
+    builder->offset = offset + length;
 
     return CborStatusOK;
 }
@@ -643,8 +684,9 @@ CborStatus cbor_appendCborRaw(CborBuilder *builder, uint8_t *data,
     size_t remaining = builder->length - builder->offset;
     if (remaining < length) { return CborStatusBufferOverrun; }
 
-    memcpy(&builder->data[builder->offset], data, length);
-    builder->offset += length;
+    size_t offset = builder->offset;
+    memmove(&builder->data[offset], data, length);
+    builder->offset = offset + length;
 
     return CborStatusOK;
 }
@@ -652,3 +694,166 @@ CborStatus cbor_appendCborRaw(CborBuilder *builder, uint8_t *data,
 CborStatus cbor_appendCborBuilder(CborBuilder *dst, CborBuilder *src) {
     return cbor_appendCborRaw(dst, src->data, src->offset);
 }
+
+
+///////////////////////////////
+// RLP
+/*
+static size_t getByteCount(size_t value) {
+    if (value < 0x100) { return 1; }
+    if (value < 0x10000) { return 2; }
+    if (value < 0x1000000) { return 3; }
+    return 4;
+}
+
+static CborStatus appendByte(CborBuilder *rlp, uint8_t byte) {
+    size_t remaining = rlp->length - rlp->offset;
+    if (remaining < 1) { return CborStatusBufferOverrun; }
+    rlp->data[rlp->offset++] = byte;
+    return CborStatusOK;
+}
+
+static CborStatus appendBytes(CborBuilder *rlp, uint8_t *data, size_t length) {
+    size_t remaining = rlp->length - rlp->offset;
+    if (remaining < length) { return CborStatusBufferOverrun; }
+    memmove(&rlp->data[rlp->offset], data, length);
+    rlp->offset += length;
+    return CborStatusOK;
+}
+
+static CborStatus appendHeader(CborBuilder *rlp, uint8_t prefix, size_t size) {
+    if (size <= 55) { return appendByte(rlp, prefix + size); }
+
+    size_t byteCount = getByteCount(size);
+
+    CborStatus status = appendByte(rlp, prefix + 55 + byteCount);
+    if (status) { return status; }
+
+    for (int i = byteCount - 1; i >= 0; i--) {
+        status = appendByte(rlp, size >> (8 * byteCount));
+        if (status) { return status; }
+    }
+
+    return CborStatusOK;
+}
+
+static size_t rlpSize(CborCursor *_cursor);
+
+// Returns the RLP size of the sum of all array children
+static size_t rlpArraySize(CborCursor *_cursor) {
+    CborCursor cursor;
+    cbor_clone(&cursor, _cursor);
+
+    size_t size = 0;
+
+    CborStatus status = cbor_firstValue(&cursor, NULL);
+    if (status && status != CborStatusNotFound) { return 0; }
+
+    while (status == CborStatusOK) {
+        size_t l = rlpSize(&cursor);
+        if (l == 0) { return 0; }
+        size += l;
+
+        status = cbor_nextValue(&cursor, NULL);
+        if (status && status != CborStatusNotFound) { return 0; }
+    }
+
+    return size;
+}
+
+// Returns the RLP size
+static size_t rlpSize(CborCursor *_cursor) {
+    CborCursor cursor;
+    cbor_clone(&cursor, _cursor);
+
+    switch (cbor_getType(&cursor)) {
+
+        case CborTypeString: case CborTypeData: {
+            uint8_t *data = NULL;
+            size_t length = 0;
+            CborStatus status = cbor_getData(&cursor, &data, &length);
+            if (length == 1 && data[0] <= 127) { return 1; }
+            if (length < 55) { return 1 + length; }
+            return 1 + getByteCount(length) + length;
+        }
+
+        case CborTypeArray: {
+            size_t size = rlpArraySize(&cursor);
+            if (size <= 55) { return 1 + size; }
+            return 1 + getByteCount(size) + size;
+        }
+
+        default:
+            break;
+    }
+    return 0;
+}
+
+
+static CborStatus encode(CborCursor *_cursor, CborBuilder *rlp) {
+    CborCursor cursor;
+    cbor_clone(&cursor, _cursor);
+
+    switch (cbor_getType(&cursor)) {
+
+        case CborTypeString: case CborTypeData: {
+            uint8_t *data = NULL;
+            size_t length = 0;
+            CborStatus status = cbor_getData(&cursor, &data, &length);
+
+            if (length == 1 && data[0] <= 127) {
+                return appendByte(rlp, data[0]);
+            }
+
+            status = appendHeader(rlp, 0x80, length);
+            if (status) { return status; }
+
+            return appendBytes(rlp, data, length);
+        }
+
+        case CborTypeArray: {
+            size_t size = rlpArraySize(&cursor);
+
+            CborStatus status = appendHeader(rlp, 0xc0, size);
+            if (status) { return status; }
+
+            status = cbor_firstValue(&cursor, NULL);
+            if (status && status != CborStatusNotFound) { return 0; }
+
+            while (status == CborStatusOK) {
+                status = encode(&cursor, rlp);
+                if (status) { return status; }
+
+                status = cbor_nextValue(&cursor, NULL);
+                if (status && status != CborStatusNotFound) { return 0; }
+            }
+
+            return CborStatusOK;
+        }
+
+        default:
+            break;
+    }
+
+    return CborStatusUnsupportedType;
+}
+
+CborStatus cbor_encodeRlp(CborCursor *cursor, uint8_t *data, size_t *length) {
+    size_t offset = 0;
+
+    CborBuilder rlp = { 0 };
+    rlp.data = data;
+    rlp.length = *length;
+
+    CborStatus status = encode(cursor, &rlp);
+
+    // Failed to create RLP data
+    if(status) {
+        *length = 0;
+        return status;
+    }
+
+    *length = rlp.offset;
+    return CborStatusOK;
+}
+*/

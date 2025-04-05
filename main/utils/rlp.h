@@ -9,26 +9,39 @@ extern "C" {
 #include <stdint.h>
 
 
-#define RLP_SUCCESS     (1)
-#define RLP_ERROR       (0)
 
+typedef enum RlpStatus {
+    RlpStatusOK = 0,
 
-typedef void* RLP;
+    RlpStatusBufferOverrun = -31,
+    RlpStatusOverflow = -55
+} RlpStatus;
 
+typedef struct RlpBuilder {
+    uint8_t *data;
+    size_t offset, length;
+} RlpBuilder;
 
-RLP rlp_init(uint8_t *buffer, size_t bufferLength);
+/**
+ *  Initializes a new RLP builder.
+ *
+ *  During the build, intermediate data is included in the %%data%%
+ *  buffer, so the [[rlp_finalize]] MUST be called to complete RLP
+ *  serialization.
+ */
+void rlp_build(RlpBuilder *builder, uint8_t *data, size_t length);
 
-// int32_t data_appendByte(Data data, uint8_t byte);
-// int32_t data_appendBytes(Data data, uint8_t *bytes, size_t bytesLength);
-// int32_t data_appendData(Data data, Data otherData);
-// int32_t data_appendString(Data data, const char *str);
+/**
+ *  Remove all intermediate data and return the length of the RLP-encoded
+ *  data.
+ */
+size_t rlp_finalize(RlpBuilder *builder);
 
-// int32_t data_remove(Data data, size_t offset, size_t length);
+RlpStatus rlp_appendData(RlpBuilder *builder, uint8_t *data, size_t length);
+RlpStatus rlp_appendString(RlpBuilder *builder, const char *data);
 
-size_t rlp_length(RLP data);
-// size_t data_capacity(Data data);
+RlpStatus rlp_appendArray(RlpBuilder *builder, size_t count);
 
-uint32_t data_getBytes(RLP data, uint8_t *output, size_t outputLength);
 
 
 #ifdef __cplusplus

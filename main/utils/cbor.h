@@ -16,6 +16,9 @@ extern "C" {
  */
 typedef uint16_t CborBuilderTag;
 
+/**
+ *  The supported types for CBOR data.
+ */
 typedef enum CborType {
     CborTypeError    = 0,
     CborTypeNull     = 1,
@@ -51,12 +54,10 @@ typedef enum CborStatus {
    // The CBOR data contains an unsupported value type(e.g. tags)
    CborStatusUnsupportedType   = -52,
 
-   // The CBOR data contains an unsupported value (e.g. indefinite data)
-   CborStatusUnsupportedValue  = -53,
-
    // Value represented does not fit within a uint64
    CborStatusOverflow          = -55,
 } CborStatus;
+
 
 /**
  *  A cursor used to traverse and read CBOR-encoded data.
@@ -80,6 +81,7 @@ typedef struct CborCusror {
     CborStatus status;
 } CborCursor;
 
+
 /**
  *  A builder used to create and write CBOR-encoded data.
  *
@@ -90,8 +92,14 @@ typedef struct CborBuilder {
     size_t length;
     size_t offset;
 
+    // Will always allot the maximum bytes for a type; useful
+    // for in-place re-encoding where the extra space can
+    // be used for intermediate data during transform.
+    bool sparse;
+
     CborStatus status;
 } CborBuilder;
+
 
 // Detects if an error occurred during crawl or build... @TODO
 CborStatus cbor_getStatus(CborCursor *cursor);
@@ -100,35 +108,88 @@ CborStatus cbor_getBuildStatus(CborCursor *cursor);
 void cbor_init(CborCursor *cursor, uint8_t *data, size_t length);
 void cbor_clone(CborCursor *dst, CborCursor *src);
 
+/**
+ *  Returns the type.
+ */
 CborType cbor_getType(CborCursor *cursor);
 
+/**
+ *  Returns the value for scalar types (Null, Boolean, Number).
+ *
+ *  Null is always 0. Boolean is either 0 for false, or 1 for true.
+ */
 CborStatus cbor_getValue(CborCursor *cursor, uint64_t *value);
-CborStatus cbor_getData(CborCursor *cursor, uint8_t *data, size_t length);
 
-// Returns the number of array elements or map key-pairs or data length
+/**
+ *  Copies the data for data types (Data and String), up to length bytes.
+ */
+CborStatus cbor_copyData(CborCursor *cursor, uint8_t *data, size_t length);
+
+/**
+ *  Exposes the underlying shared data buffer and length for data
+ *  types (Data and String) without copying.
+ *
+ *  Do NOT modify these values.
+ */
+CborStatus cbor_getData(CborCursor *cursor, uint8_t **data, size_t *length);
+
+/**
+ *  For Array and Map types, returns the number of values, and for
+ *  Data and String types returns the length in bytes.
+ */
 CborStatus cbor_getLength(CborCursor *cursor, size_t *count);
 
+/**
+ *  Moves the %%cursor%% to the value for %%key%% within a Map.
+ *
+ *  If the Map does not have %%key%%, returns CborStatusNotFound.
+ */
 CborStatus cbor_followKey(CborCursor *cursor, const char *key);
+
+/**
+ *  Moves the %%cursor%% to the %%index%% value within an Array.
+ *
+ *  If outside the bounds of the Array, returns CborStatusNotFound.
+ */
 CborStatus cbor_followIndex(CborCursor *cursor, size_t index);
 
 bool cbor_isDone(CborCursor *cursor);
 
-// When called on a map, moves to the first value and updates key.
-// When called on an array, moves to the first value
+/**
+ *  Moves %%cursor%% to the first value within a Map or Array.
+ *
+ *  If the container is a Map and %%key%% is not NULL, then it
+ *  is updated to point to the key's value.
+ *
+ *  If the continaer is empty, returns CborStatusNotFound.
+ */
 CborStatus cbor_firstValue(CborCursor *cursor, CborCursor *key);
 
-// When called on a map entry, moves to the value item and copies the key.
-// When called on an array element, moves to the next value
+/**
+ *  Moves %%cursor%% to the next value within a Map or Array.
+ *
+ *  If the container is a Map and %%key%% is not NULL, then it
+ *  is updated to point to the key's value.
+ *
+ *  If there are no more entries, returns CborStatusNotFound.
+ */
 CborStatus cbor_nextValue(CborCursor *cursor, CborCursor *key);
 
 // Low-level; not for normal use
 CborStatus _cbor_next(CborCursor *cursor);
 //uint8_t* cbor_raw(CborCursor *cursor, uint8_t *type, uint64_t *count);
 
+/**
+ *  Dumps the structured CBOR data to the console.
+ */
 void cbor_dump(CborCursor *cursor);
+
 
 // Initialize a CBOR builder.
 void cbor_build(CborBuilder *builder, uint8_t *data, size_t length);
+
+// Initialize a CBOR builder.
+void cbor_buildSparse(CborBuilder *builder, uint8_t *data, size_t length);
 
 size_t cbor_getBuildLength(CborBuilder *builder);
 
@@ -169,10 +230,17 @@ CborStatus cbor_appendMapMutable(CborBuilder *builder, CborBuilderTag *tag);
 void cbor_adjustCount(CborBuilder *builder, CborBuilderTag tag,
   uint16_t count);
 
+/**
+ *  Append raw CBRO-encoded %%data%% to an entry in %%builder%%.
+ */
 CborStatus cbor_appendCborRaw(CborBuilder *builder, uint8_t *data,
   size_t length);
 
+/**
+ *  Append an entire CborBuilder %%src%% to an entry in %%dst%%.
+ */
 CborStatus cbor_appendCborBuilder(CborBuilder *dst, CborBuilder *src);
+
 
 #ifdef __cplusplus
 }
