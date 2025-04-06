@@ -1,0 +1,8 @@
+[submodule "components/firefly-scene"]
+	path = components/firefly-scene
+	url = https://github.com/firefly/component-scene.git
+	branch = main
+[submodule "components/firefly-display"]
+	path = components/firefly-display
+	url = https://github.com/firefly/component-display.git
+	branch = main

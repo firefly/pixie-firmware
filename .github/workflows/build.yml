@@ -1,0 +1,45 @@
+name: Build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      memory:
+        description: 'Max memory size available to docker'
+        required: true
+        default: '1g'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      MAX_MEMORY_SIZE: '500m'
+    steps:
+    - name: Checkout pixie-firmware
+      uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+    - name: Setup node version
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Set maximum memory for 'workflow_dispatch' trigger
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        MAX_MEMORY_SIZE: ${{ inputs.memory }}
+      run: echo $MAX_MEMORY_SIZE
+    - name: Verify scene and display components
+      run: |
+        ls -la ${{ github.workspace }}/components/firefly-display
+        ls -la ${{ github.workspace }}/components/firefly-scene
+        git submodule status
+    - name: Build pixie-firmware using Docker
+      id: build
+      run: |
+        echo $MAX_MEMORY_SIZE
+        docker run -m $MAX_MEMORY_SIZE --rm -v $PWD:/project -w /project -u $UID -e HOME=/tmp espressif/idf idf.py build
+    - name: Verify assets
+      run: |
+        ls -l ${{ github.workspace }}/build/pixie.bin
+        ls -l ${{ github.workspace }}/build/bootloader/bootloader.bin
+        ls -l ${{ github.workspace }}/build/partition_table/partition-table.bin
