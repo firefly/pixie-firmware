@@ -9,20 +9,18 @@
 // Example of __DATE__ string: "Jul 27 2012"
 // Example of __TIME__ string: "21:06:19"
 
-#define COMPUTE_BUILD_YEAR \
-    ( \
-        (__DATE__[ 7] - '0') * 1000 + \
-        (__DATE__[ 8] - '0') *  100 + \
-        (__DATE__[ 9] - '0') *   10 + \
-        (__DATE__[10] - '0') \
-    )
+#define COMPUTE_BUILD_YEAR ( \
+    (__DATE__[ 7] - '0') * 1000 + \
+    (__DATE__[ 8] - '0') *  100 + \
+    (__DATE__[ 9] - '0') *   10 + \
+    (__DATE__[10] - '0') \
+)
 
 
-#define COMPUTE_BUILD_DAY \
-    ( \
-        ((__DATE__[4] >= '0') ? (__DATE__[4] - '0') * 10 : 0) + \
-        (__DATE__[5] - '0') \
-    )
+#define COMPUTE_BUILD_DAY ( \
+    ((__DATE__[4] >= '0') ? (__DATE__[4] - '0') * 10 : 0) + \
+    (__DATE__[5] - '0') \
+)
 
 
 #define BUILD_MONTH_IS_JAN (__DATE__[0] == 'J' && __DATE__[1] == 'a')
@@ -39,22 +37,21 @@
 #define BUILD_MONTH_IS_DEC (__DATE__[0] == 'D')
 
 
-#define COMPUTE_BUILD_MONTH \
-    ( \
-        (BUILD_MONTH_IS_JAN) ?  1 : \
-        (BUILD_MONTH_IS_FEB) ?  2 : \
-        (BUILD_MONTH_IS_MAR) ?  3 : \
-        (BUILD_MONTH_IS_APR) ?  4 : \
-        (BUILD_MONTH_IS_MAY) ?  5 : \
-        (BUILD_MONTH_IS_JUN) ?  6 : \
-        (BUILD_MONTH_IS_JUL) ?  7 : \
-        (BUILD_MONTH_IS_AUG) ?  8 : \
-        (BUILD_MONTH_IS_SEP) ?  9 : \
-        (BUILD_MONTH_IS_OCT) ? 10 : \
-        (BUILD_MONTH_IS_NOV) ? 11 : \
-        (BUILD_MONTH_IS_DEC) ? 12 : \
-        /* error default */  99 \
-    )
+#define COMPUTE_BUILD_MONTH ( \
+    (BUILD_MONTH_IS_JAN) ?  1 : \
+    (BUILD_MONTH_IS_FEB) ?  2 : \
+    (BUILD_MONTH_IS_MAR) ?  3 : \
+    (BUILD_MONTH_IS_APR) ?  4 : \
+    (BUILD_MONTH_IS_MAY) ?  5 : \
+    (BUILD_MONTH_IS_JUN) ?  6 : \
+    (BUILD_MONTH_IS_JUL) ?  7 : \
+    (BUILD_MONTH_IS_AUG) ?  8 : \
+    (BUILD_MONTH_IS_SEP) ?  9 : \
+    (BUILD_MONTH_IS_OCT) ? 10 : \
+    (BUILD_MONTH_IS_NOV) ? 11 : \
+    (BUILD_MONTH_IS_DEC) ? 12 : \
+    /* error default */  99 \
+)
 
 #define COMPUTE_BUILD_HOUR ((__TIME__[0] - '0') * 10 + __TIME__[1] - '0')
 #define COMPUTE_BUILD_MIN  ((__TIME__[3] - '0') * 10 + __TIME__[4] - '0')

@@ -2,9 +2,10 @@
 
 #include "firefly-scene.h"
 
+#include "utils.h"
+
 #include "panel.h"
-#include "./panel-gifs.h"
-#include "system/utils.h"
+#include "panel-gifs.h"
 
 #include "images/video-fox.h"
 #include "images/video-rroll.h"
@@ -19,19 +20,25 @@ typedef struct State {
     FfxNode menu;
 } State;
 
+static void animateMenu(FfxNode menu, FfxNodeAnimation *animation, void *arg) {
+    int32_t x = *(int*)arg;
+    animation->duration = 1000;
+    animation->curve = FfxCurveEaseOutQuad;
+
+    ffx_sceneNode_setPosition(menu, ffx_point(x, 0));
+}
 
 static void keyChanged(EventPayload event, void *_state) {
     State *state = _state;
 
-    switch(event.props.keyEvent.down) {
+    switch(event.props.keys.down) {
         case KeyCancel:
             state->video = 0;
             if (state->menuHidden) {
-                ffx_scene_stopAnimations(state->menu,
-                  FfxSceneActionStopCurrent);
-                ffx_scene_nodeAnimatePosition(state->scene, state->menu,
-                  (FfxPoint){ .x = 0, .y = 0 }, 1000, FfxCurveEaseOutQuad,
-                  NULL);
+                ffx_sceneNode_stopAnimations(state->menu,
+                   FfxSceneActionStopCurrent);
+                int32_t x = 0;
+                ffx_sceneNode_animate(state->menu, animateMenu, &x);
                 state->menuHidden = false;
             } else {
                 panel_pop();
@@ -40,33 +47,30 @@ static void keyChanged(EventPayload event, void *_state) {
         case KeyOk:
             state->video = 1;
             if (!state->menuHidden) {
-                ffx_scene_stopAnimations(state->menu,
+                ffx_sceneNode_stopAnimations(state->menu,
                   FfxSceneActionStopCurrent);
-                ffx_scene_nodeAnimatePosition(state->scene, state->menu,
-                  (FfxPoint){ .x = 240, .y = 0 }, 1000, FfxCurveEaseOutQuad,
-                  NULL);
+                int32_t x = 240;
+                ffx_sceneNode_animate(state->menu, animateMenu, &x);
                 state->menuHidden = true;
             }
             break;
         case KeyNorth:
             state->video = 2;
             if (!state->menuHidden) {
-                ffx_scene_stopAnimations(state->menu,
+                ffx_sceneNode_stopAnimations(state->menu,
                   FfxSceneActionStopCurrent);
-                ffx_scene_nodeAnimatePosition(state->scene, state->menu,
-                  (FfxPoint){ .x = 240, .y = 0 }, 1000, FfxCurveEaseOutQuad,
-                  NULL);
+                int32_t x = 240;
+                ffx_sceneNode_animate(state->menu, animateMenu, &x);
                 state->menuHidden = true;
             }
             break;
         case KeySouth:
             state->video = 3;
             if (!state->menuHidden) {
-                ffx_scene_stopAnimations(state->menu,
+                ffx_sceneNode_stopAnimations(state->menu,
                   FfxSceneActionStopCurrent);
-                ffx_scene_nodeAnimatePosition(state->scene, state->menu,
-                  (FfxPoint){ .x = 240, .y = 0 }, 1000, FfxCurveEaseOutQuad,
-                  NULL);
+                int32_t x = 240;
+                ffx_sceneNode_animate(state->menu, animateMenu, &x);
                 state->menuHidden = true;
             }
             break;
@@ -95,7 +99,7 @@ static void setFoxFrame(FfxNode node) {
     };
 
     const uint16_t *imgData = frames[frame];
-    ffx_scene_imageSetData(node, imgData, sizeof(image_fox_0));
+    ffx_sceneImage_setData(node, imgData, sizeof(image_fox_0));
 }
 
 static void setNyanFrame(FfxNode node) {
@@ -110,10 +114,11 @@ static void setNyanFrame(FfxNode node) {
     };
 
     const uint16_t *imgData = frames[frame];
-    ffx_scene_imageSetData(node, imgData, sizeof(image_fox_0));
+    ffx_sceneImage_setData(node, imgData, sizeof(image_nyan_0));
 }
 
 static void setShibaFrame(FfxNode node) {
+
     const size_t frameCount = 13;
 
     // 10 fps
@@ -127,7 +132,7 @@ static void setShibaFrame(FfxNode node) {
     };
 
     const uint16_t *imgData = frames[frame];
-    ffx_scene_imageSetData(node, imgData, sizeof(image_fox_0));
+    ffx_sceneImage_setData(node, imgData, sizeof(image_fox_0));
 }
 
 static void setRrollFrame(FfxNode node) {
@@ -147,7 +152,7 @@ static void setRrollFrame(FfxNode node) {
     };
 
     const uint16_t *imgData = frames[frame];
-    ffx_scene_imageSetData(node, imgData, sizeof(image_rroll_0));
+    ffx_sceneImage_setData(node, imgData, sizeof(image_rroll_0));
 }
 
 
@@ -174,39 +179,42 @@ static int _init(FfxScene scene, FfxNode node, void *_state, void *arg) {
     State *state = _state;
     state->scene = scene;
 
-    const char* const phraseOption1   = "< back";
-    const char* const phraseOption2   = "  Nyan";
-    const char* const phraseOption3   = "   Fox";
-    const char* const phraseOption4   = "R-Roll";
-
-    FfxNode gif = ffx_scene_createImage(scene, image_rroll_0,
-      sizeof(image_rroll_0));
+    FfxNode gif = ffx_scene_createImage(scene, image_nyan_0,
+      sizeof(image_nyan_0));
     state->gif = gif;
-    ffx_scene_appendChild(node, gif);
-    setRrollFrame(gif);
+    ffx_sceneGroup_appendChild(node, gif);
+    setShibaFrame(gif);
 
     FfxNode menu = ffx_scene_createGroup(scene);
     state->menu = menu;
-    ffx_scene_appendChild(node, menu);
-    ffx_scene_nodeSetPosition(menu, (FfxPoint){ .x = 0, .y = 0 });
+    ffx_sceneGroup_appendChild(node, menu);
+    ffx_sceneNode_setPosition(menu, ffx_point(0, 0));
 
     FfxNode text;
 
-    text = ffx_scene_createTextStr(scene, phraseOption1);
-    ffx_scene_appendChild(menu, text);
-    ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 130, .y = 24 });
+    text = ffx_scene_createLabel(scene, FfxFontLarge, "< back");
+    ffx_sceneGroup_appendChild(menu, text);
+    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 230, .y = 14 });
+    ffx_sceneLabel_setAlign(text, FfxTextAlignRight | FfxTextAlignMiddle);
+    ffx_sceneLabel_setOutlineColor(text, ffx_color_rgb(0, 0, 0));
 
-    text = ffx_scene_createTextStr(scene, phraseOption2);
-    ffx_scene_appendChild(menu, text);
-    ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 130, .y = 94 });
+    text = ffx_scene_createLabel(scene, FfxFontLarge, "  Nyan");
+    ffx_sceneGroup_appendChild(menu, text);
+    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 230, .y = 84 });
+    ffx_sceneLabel_setAlign(text, FfxTextAlignRight | FfxTextAlignMiddle);
+    ffx_sceneLabel_setOutlineColor(text, ffx_color_rgb(0, 0, 0));
 
-    text = ffx_scene_createTextStr(scene, phraseOption3);
-    ffx_scene_appendChild(menu, text);
-    ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 130, .y = 163 });
+    text = ffx_scene_createLabel(scene, FfxFontLarge, "   Fox");
+    ffx_sceneGroup_appendChild(menu, text);
+    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 230, .y = 156 });
+    ffx_sceneLabel_setAlign(text, FfxTextAlignRight | FfxTextAlignMiddle);
+    ffx_sceneLabel_setOutlineColor(text, ffx_color_rgb(0, 0, 0));
 
-    text = ffx_scene_createTextStr(scene, phraseOption4);
-    ffx_scene_appendChild(menu, text);
-    ffx_scene_nodeSetPosition(text, (FfxPoint){ .x = 130, .y = 232 });
+    text = ffx_scene_createLabel(scene, FfxFontLarge, "R-Roll");
+    ffx_sceneGroup_appendChild(menu, text);
+    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 230, .y = 226 });
+    ffx_sceneLabel_setAlign(text, FfxTextAlignRight | FfxTextAlignMiddle);
+    ffx_sceneLabel_setOutlineColor(text, ffx_color_rgb(0, 0, 0));
 
     panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk | KeyCancel,
       keyChanged, state);

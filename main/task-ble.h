@@ -8,6 +8,9 @@ extern "C" {
 #include <stdint.h>
 
 
+// 16kb
+#define MAX_MESSAGE_SIZE        (1 << 14)
+
 uint32_t ble_init();
 
 void taskBleFunc(void* pvParameter);
@@ -26,6 +29,7 @@ void panel_enableMessage(bool enable);
 
 //uint32_t transport_wait(TransportContext context);
 
+size_t panel_copyMessage(uint32_t messageId, uint8_t *output);
 
 #ifdef __cplusplus
 }
