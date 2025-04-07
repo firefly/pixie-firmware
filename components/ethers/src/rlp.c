@@ -1,3 +1,42 @@
+/**
+ *  Overview of the encoding:
+ *
+ *  The structured data is comprised of items, where each item is either:
+ *    - Data (a series of bytes)
+ *    - Array of items (either Data or Arrays; allowing arbitrary nesting)
+ *
+ *  Each item is a header, followed by its payload bytes.
+ *
+ *  The header starts with a single byte, depending on the top bits:
+ *    - `0b0xxx xxxx`: a 1-byte Data with that value as its value
+ *    - `0b10xx xxxx`: a Data with the X (see below) bytes as its value
+ *    - `0b11xx xxxx`: an Array with X bytes of its children concatenated
+ *
+ *  The header length X, is based on the bottom 6-bits. If the value is
+ *  55 or fewer, then that is X. Otherwise, consume that number of bytes
+ *  as a big-endian represention of X.
+ *
+ *  The X MUST be **minimally** encoded.
+ *
+ *  Some interesting notes:
+ *    - a zero-byte Data is 0b01000000 which is still a single byte
+ *    - a zero-length Array is 0b10000000 which is a single byte
+ *    - X MUST be minimally encoed, w; a length Xof 32 must be encoded using
+ *      0x20, not 0x0020
+ *
+ *  Implementation:
+ *    On the initial build:
+ *      - Data is correctly RLP encoded (i.e. compact)
+ *      - Zero-length Arrays are correctly RLP encoded (i.e. compact)
+ *      - Arrays are encoded reserving 4 bytes for length, but store
+ *        the count of children instead of the number of child bytes 
+ *    On finalize, the structure is recursively travsersed, compacting
+ *    any non-compact Array using the child count to determine total
+ *    length and shifting the entire encoded data past the array left
+ *    as needed (since 4 bytes were reserved and payloads larger than
+ *    that are not supported, we always compact some amount).
+ */
+
 #include <string.h>
 
 #include "firefly-rlp.h"

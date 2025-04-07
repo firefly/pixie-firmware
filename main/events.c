@@ -6,9 +6,6 @@
 
 #include "panel.h"
 
-// See: main.c
-extern PanelContext *activePanel;
-
 
 #define MAX_EVENT_FILTERS  (32)
 
@@ -22,17 +19,37 @@ typedef struct EventFilter {
     void *arg;
 } EventFilter;
 
-
+// List of filters
 static EventFilter eventFilters[MAX_EVENT_FILTERS] = { 0 };
 
+// Lock to acquire before modifying eventFilters.
 static StaticSemaphore_t lockEventsBuffer;
 static SemaphoreHandle_t lockEvents;
+
+
+///////////////////////////////
+// Private API (events-private.h)
 
 void events_init() {
     lockEvents = xSemaphoreCreateBinaryStatic(&lockEventsBuffer);
     xSemaphoreGive(lockEvents);
 }
 
+void events_clearFilters(PanelContext *panel) {
+    xSemaphoreTake(lockEvents, portMAX_DELAY);
+
+    for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
+        EventFilter *filter = &eventFilters[i];
+        if (filter->event == 0 || filter->panel != panel) { continue; }
+        filter->event = 0;
+    }
+
+    xSemaphoreGive(lockEvents);
+}
+
+
+///////////////////////////////
+// API
 
 void panel_emitEvent(EventName eventName, EventPayloadProps props) {
 
@@ -127,7 +144,7 @@ void panel_emitEvent(EventName eventName, EventPayloadProps props) {
 }
 
 // Caller must own the lockEvents mutex
-static EventFilter* _getEmptyFilter() {
+static EventFilter* getEmptyFilter() {
     for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
         EventFilter *filter = &eventFilters[i];
 
@@ -150,7 +167,7 @@ int panel_onEvent(EventName event, EventCallback callback, void *arg) {
 
     xSemaphoreTake(lockEvents, portMAX_DELAY);
 
-    EventFilter *filter = _getEmptyFilter(event);
+    EventFilter *filter = getEmptyFilter(event);
     if (filter == NULL) {
         // @TODO: panic?
         printf("No filter\n");
@@ -187,14 +204,3 @@ void panel_offEvent(int filterId) {
     xSemaphoreGive(lockEvents);
 }
 
-void deregisterPanel(PanelContext *panel) {  // @TODO Rearrange
-    xSemaphoreTake(lockEvents, portMAX_DELAY);
-
-    for (int i = 0; i < MAX_EVENT_FILTERS; i++) {
-        EventFilter *filter = &eventFilters[i];
-        if (filter->event == 0 || filter->panel != panel) { continue; }
-        filter->event = 0;
-    }
-
-    xSemaphoreGive(lockEvents);
-}

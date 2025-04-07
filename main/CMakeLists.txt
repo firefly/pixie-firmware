@@ -3,6 +3,7 @@ idf_component_register(
     "main.c"
     "device-info.c"
     "events.c"
+    "panel.c"
     "panel-attest.c"
     "panel-connect.c"
     "panel-gifs.c"
