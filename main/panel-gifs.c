@@ -132,7 +132,7 @@ static void setShibaFrame(FfxNode node) {
     };
 
     const uint16_t *imgData = frames[frame];
-    ffx_sceneImage_setData(node, imgData, sizeof(image_fox_0));
+    ffx_sceneImage_setData(node, imgData, sizeof(image_shiba_0));
 }
 
 static void setRrollFrame(FfxNode node) {

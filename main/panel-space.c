@@ -27,6 +27,7 @@
 
 typedef struct SpaceState {
     bool running;
+    bool paused;
 
     uint32_t resetTimer;
 
@@ -37,6 +38,7 @@ typedef struct SpaceState {
     FfxNode alien[ROWS * COLS];
     FfxNode bullet[BULLETS];
     FfxNode boom[BULLETS];
+    FfxNode pausedLabel;
     uint8_t boomLife[BULLETS];
     uint8_t dead[ROWS * COLS];
     uint32_t tick;
@@ -97,12 +99,15 @@ static void render(EventPayload event, void *_app) {
     // Either hasn't started yet or game over
     if (!space->running) { return; }
 
-    // Reset button heald down for more than 3s
+    // Reset button held down for more than 3s (legacy behavior)
     if (space->keys == KeyOk && ticks() - space->resetTimer > 3000) {
         panel_pop();
     }
 
-    // Mode left/right if keys are being held down
+    // Don't update game logic when paused
+    if (space->paused) { return; }
+
+    // Move left/right if keys are being held down
     if (space->keys & KeyNorth) {
         if (ship.y > 0) { ship.y -= 2; }
     } else if (space->keys & KeySouth) {
@@ -235,11 +240,37 @@ static void keyChanged(EventPayload event, void *_app) {
 
     //printf("[space] high-water: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
-    if (keys == KeyOk) {
-        space->resetTimer = ticks();
+    // Handle Ok button hold-to-exit, short press for pause
+    static uint32_t okHoldStart = 0;
+    
+    if (keys & KeyOk) {
+        if (okHoldStart == 0) {
+            okHoldStart = ticks();
+        }
+        space->resetTimer = ticks(); // Keep existing reset timer logic
     } else {
+        if (okHoldStart > 0) {
+            uint32_t holdDuration = ticks() - okHoldStart;
+            if (holdDuration > 1000) { // 1 second hold to exit
+                panel_pop();
+                return;
+            } else {
+                // Short press - pause/unpause
+                space->paused = !space->paused;
+                // Show/hide paused label
+                if (space->paused) {
+                    ffx_sceneNode_setPosition(space->pausedLabel, (FfxPoint){ .x = 85, .y = 120 });
+                } else {
+                    ffx_sceneNode_setPosition(space->pausedLabel, (FfxPoint){ .x = -300, .y = 120 });
+                }
+            }
+            okHoldStart = 0;
+        }
         space->resetTimer = 0;
     }
+
+    // Don't process other controls when paused
+    if (space->paused) return;
 
     if (keys & KeyCancel) {
         for (int i = 0; i < BULLETS; i++) {
@@ -260,6 +291,7 @@ static int _init(FfxScene scene, FfxNode panel, void* panelState, void* arg) {
     SpaceState *space = panelState;
     space->scene = scene;
     space->panel = panel;
+    space->paused = false;
 
     FfxNode bg = ffx_scene_createImage(scene, image_space, sizeof(image_space));
     ffx_sceneGroup_appendChild(panel, bg);
@@ -301,6 +333,11 @@ static int _init(FfxScene scene, FfxNode panel, void* panelState, void* arg) {
             });
         }
     }
+
+    // Create paused label - centered on screen
+    space->pausedLabel = ffx_scene_createLabel(scene, FfxFontLarge, "PAUSED");
+    ffx_sceneGroup_appendChild(panel, space->pausedLabel);
+    ffx_sceneNode_setPosition(space->pausedLabel, (FfxPoint){ .x = -300, .y = 120 }); // Hidden initially
 
     panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk | KeyCancel,
       keyChanged, space);

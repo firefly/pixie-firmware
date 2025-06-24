@@ -10,7 +10,7 @@ uint32_t ticks() {
 }
 
 void delay(uint32_t duration) {
-    vTaskDelay((duration + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS);
+    vTaskDelay(pdMS_TO_TICKS(duration));
 }
 
 char* taskName() {

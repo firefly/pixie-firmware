@@ -3,9 +3,9 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
 
 #include "events-private.h"
-#include "task-ble.h"
 #include "task-io.h"
 
 #include "device-info.h"
@@ -22,10 +22,20 @@ void app_main() {
     vTaskSetApplicationTaskTag( NULL, (void*)NULL);
 
     TaskHandle_t taskIoHandle = NULL;
-    TaskHandle_t taskBleHandle = NULL;
 
     // Initialie the events
     events_init();
+
+    // Initialize NVS flash for wallet storage
+    {
+        esp_err_t ret = nvs_flash_init();
+        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            ret = nvs_flash_init();
+        }
+        ESP_ERROR_CHECK(ret);
+        printf("[main] NVS flash initialized\n");
+    }
 
     // Load NVS and eFuse provision data
     {
@@ -48,19 +58,6 @@ void app_main() {
         printf("[main] IO ready\n");
     }
 
-    // Start the Message task (handles BLE messages)
-    {
-        // Pointer passed to taskReplFunc to notify us when REPL is ready
-        uint32_t ready = 0; // @TODO: set this to 0 and set in the task
-
-        BaseType_t status = xTaskCreatePinnedToCore(&taskBleFunc, "ble", 5 * 1024, &ready, 2, &taskBleHandle, 0);
-        printf("[main] start BLE task: status=%d\n", status);
-        assert(taskBleHandle != NULL);
-
-        // Wait for the REPL task to complete setup
-        while (!ready) { delay(1); }
-        printf("[main] BLE ready\n");
-    }
 
     // Start the App Process; this is started in the main task, so
     // has high-priority. Don't doddle.
@@ -73,11 +70,10 @@ void app_main() {
     //pushPanelConnect(NULL);
 
     while (1) {
-        printf("[main] high-water: boot=%d io=%d, ble=%d freq=%ld\n",
+        printf("[main] high-water: boot=%d io=%d freq=%d\n",
             uxTaskGetStackHighWaterMark(NULL),
             uxTaskGetStackHighWaterMark(taskIoHandle),
-            uxTaskGetStackHighWaterMark(taskBleHandle),
-            portTICK_PERIOD_MS);
+            configTICK_RATE_HZ);
         delay(60000);
     }
 }

@@ -8,3 +8,5 @@ dependencies.lock
 .iterm2-project
 
 **/*.swp
+.DS_Store
+.claude/settings.local.json

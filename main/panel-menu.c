@@ -7,81 +7,143 @@
 #include "./panel-gifs.h"
 #include "./panel-menu.h"
 #include "./panel-space.h"
+#include "./panel-wallet.h"
+#include "./panel-snake.h"
+#include "./panel-tetris.h"
+#include "./panel-pong.h"
+#include "./panel-buttontest.h"
 
 #include "images/image-arrow.h"
 
+// Menu items array for easier management
+static const char* menuItems[] = {
+    "Device",
+    "GIFs", 
+    "Le Space",
+    "Wallet",
+    "Snake",
+    "Tetris",
+    "Pong",
+    "Button Test",
+    "---"
+};
+
+static const size_t MENU_ITEM_COUNT = 9;
 
 typedef struct MenuState {
     size_t cursor;
+    size_t numItems;
     FfxScene scene;
     FfxNode nodeCursor;
+    FfxNode menuLabels[9];  // Support up to 9 menu items
 } MenuState;
 
+static void updateMenuDisplay(MenuState *app) {
+    // Show 5 items total: 2 above cursor, cursor in center, 2 below cursor
+    int centerY = 120; // Center of 240px screen
+    int itemSpacing = 35;
+    
+    for (int i = 0; i < MENU_ITEM_COUNT; i++) {
+        int relativePos = i - (int)app->cursor; // Position relative to cursor
+        
+        if (relativePos >= -2 && relativePos <= 2) {
+            // Item is visible (within 2 positions of cursor)
+            int yPos = centerY + (relativePos * itemSpacing);
+            ffx_sceneNode_setPosition(app->menuLabels[i], (FfxPoint){ .x = 70, .y = yPos });
+            
+            // Highlight the selected item
+            if (i == app->cursor) {
+                ffx_sceneNode_setPosition(app->nodeCursor, (FfxPoint){ .x = 25, .y = yPos });
+            }
+        } else {
+            // Hide items that are too far from cursor
+            ffx_sceneNode_setPosition(app->menuLabels[i], (FfxPoint){ .x = -300, .y = 0 });
+        }
+    }
+}
 
 static void keyChanged(EventPayload event, void *_app) {
     MenuState *app = _app;
 
-    switch(event.props.keys.down) {
-        case KeyOk:
-            switch(app->cursor) {
-                case 0:
-                    pushPanelAttest(NULL);
-                    break;
-                case 1:
-                    pushPanelGifs(NULL);
-                    break;
-                case 2:
-                    pushPanelSpace(NULL);
-                    break;
-            }
-            return;
-        case KeyNorth:
-            if (app->cursor == 0) { return; }
-            app->cursor--;
-            break;
-        case KeySouth:
-            if (app->cursor == 2) { return; }
-            app->cursor++;
-            break;
-        default:
-            return;
+    if (event.props.keys.down & KeyOk) {
+        // Don't allow selecting the separator
+        if (app->cursor == 8) return;
+        
+        switch(app->cursor) {
+            case 0:
+                pushPanelAttest(NULL);
+                break;
+            case 1:
+                pushPanelGifs(NULL);
+                break;
+            case 2:
+                pushPanelSpace(NULL);
+                break;
+            case 3:
+                pushPanelWallet(NULL);
+                break;
+            case 4:
+                pushPanelSnake(NULL);
+                break;
+            case 5:
+                pushPanelTetris(NULL);
+                break;
+            case 6:
+                pushPanelPong(NULL);
+                break;
+            case 7:
+                pushPanelButtonTest(NULL);
+                break;
+        }
+        return;
     }
-
-    ffx_sceneNode_stopAnimations(app->nodeCursor, FfxSceneActionStopCurrent);
-    ffx_sceneNode_animatePosition(app->nodeCursor,
-      ffx_point(25, 58 + (app->cursor * 40)), 0, 150,
-      FfxCurveEaseOutQuad, NULL, NULL);
+    else if (event.props.keys.down & KeyNorth) {
+        // Circular navigation up
+        if (app->cursor == 0) {
+            app->cursor = MENU_ITEM_COUNT - 1; // Go to last item (---)
+        } else {
+            app->cursor--;
+        }
+        updateMenuDisplay(app);
+    }
+    else if (event.props.keys.down & KeySouth) {
+        // Circular navigation down  
+        if (app->cursor >= MENU_ITEM_COUNT - 1) {
+            app->cursor = 0; // Go to first item
+        } else {
+            app->cursor++;
+        }
+        updateMenuDisplay(app);
+    }
 }
 
 static int _init(FfxScene scene, FfxNode node, void *_app, void *arg) {
     MenuState *app = _app;
     app->scene = scene;
+    app->cursor = 0;
+    app->numItems = MENU_ITEM_COUNT;
 
-    FfxNode box = ffx_scene_createBox(scene, ffx_size(200, 180));
+    // Create background box
+    FfxNode box = ffx_scene_createBox(scene, ffx_size(200, 220));
     ffx_sceneBox_setColor(box, RGBA_DARKER75);
     ffx_sceneGroup_appendChild(node, box);
-    ffx_sceneNode_setPosition(box, (FfxPoint){ .x = 20, .y = 30 });
+    ffx_sceneNode_setPosition(box, (FfxPoint){ .x = 20, .y = 10 });
 
-    FfxNode text;
+    // Create all menu labels dynamically
+    for (int i = 0; i < MENU_ITEM_COUNT; i++) {
+        app->menuLabels[i] = ffx_scene_createLabel(scene, FfxFontLarge, menuItems[i]);
+        ffx_sceneGroup_appendChild(node, app->menuLabels[i]);
+        // Initial position will be set by updateMenuDisplay
+        ffx_sceneNode_setPosition(app->menuLabels[i], (FfxPoint){ .x = -300, .y = 0 });
+    }
 
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "Device");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 63 });
-
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "GIFs");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 103 });
-
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "Le Space");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 143 });
-
-    FfxNode cursor = ffx_scene_createImage(scene, image_arrow,
-      sizeof(image_arrow));
+    // Create cursor arrow
+    FfxNode cursor = ffx_scene_createImage(scene, image_arrow, sizeof(image_arrow));
     ffx_sceneGroup_appendChild(node, cursor);
-    ffx_sceneNode_setPosition(cursor, (FfxPoint){ .x = 25, .y = 58 });
-
     app->nodeCursor = cursor;
+
+    // Set initial menu display
+    updateMenuDisplay(app);
 
     panel_onEvent(EventNameKeysChanged | KeyNorth | KeySouth | KeyOk,
       keyChanged, app);

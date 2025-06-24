@@ -43,3 +43,7 @@ void ffx_eth_computeAddress(uint8_t *pubkey, uint8_t *address) {
 
     memcpy(address, &hashed[12], 20);
 }
+
+void ffx_eth_checksumAddress(uint8_t *address, char *checksumed) {
+    ffx_address_checksumAddress(address, checksumed);
+}

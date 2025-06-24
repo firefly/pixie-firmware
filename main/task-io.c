@@ -18,6 +18,7 @@
 
 #include "images/image-background.h"
 #include "images/image-pixie.h"
+#include "task-io.h"
 
 
 
@@ -256,7 +257,24 @@ static void sceneDispatch(void *setupArg,
     panel_emitEvent(EventNameCustom | cbid, props);
 }
 
+// Custom renderer state
+static CustomRenderFunc customRenderer = NULL;
+static void *customRendererContext = NULL;
+
+void taskIo_setCustomRenderer(CustomRenderFunc renderFunc, void *context) {
+    customRenderer = renderFunc;
+    customRendererContext = context;
+    printf("[io] Custom renderer %s\n", renderFunc ? "enabled" : "disabled");
+}
+
 static void renderScene(uint8_t *fragment, uint32_t y0, void *context) {
+    // Use custom renderer if set
+    if (customRenderer) {
+        customRenderer(fragment, y0, customRendererContext);
+        return;
+    }
+    
+    // Default scene rendering
     FfxScene scene = context;
     ffx_scene_render(scene, (uint16_t*)fragment,
       (FfxPoint){ .x = 0, .y = y0 },
