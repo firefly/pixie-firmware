@@ -9,82 +9,144 @@
 #include "images/image-arrow.h"
 
 
+#define ITEM_COUNT      (7)
+#define VISIBLE_ROWS    (3)
+#define ROW_HEIGHT      (40)
+#define ROW_FIRST_Y     (63)
+#define ARROW_X         (25)
+#define ARROW_OFFSET_Y  (-5)
+#define LABEL_X         (70)
+
+
 typedef struct State {
-    size_t cursor;
+    int cursor;
+    int scrollOffset;
     FfxScene scene;
-    FfxNode nodeCursor;
+    FfxNode arrow;
+    FfxNode labels[ITEM_COUNT];
 } State;
 
+
+static const char *menuItems[ITEM_COUNT] = {
+    "Wallet",
+    "GIFs",
+    "Le Space",
+    "Cyber Pulse",
+    "Life Grid",
+    "Byte Stream",
+    "Sys Stats",
+};
+
+
+static void launchItem(int idx) {
+    switch (idx) {
+        case 0: pushPanelConnect(); break;
+        case 1: pushPanelGifs();    break;
+        case 2: pushPanelSpace();   break;
+        case 3: pushPanelCyber();   break;
+        case 4: pushPanelLife();    break;
+        case 5: pushPanelBytes();   break;
+        case 6: pushPanelStats();   break;
+    }
+}
+
+static int rowYForSlot(int slot) {
+    return ROW_FIRST_Y + slot * ROW_HEIGHT;
+}
+
+static void layoutItems(State *app) {
+    for (int i = 0; i < ITEM_COUNT; i++) {
+        int slot = i - app->scrollOffset;
+        if (slot < 0 || slot >= VISIBLE_ROWS) {
+            ffx_sceneNode_setHidden(app->labels[i], true);
+            continue;
+        }
+        ffx_sceneNode_setHidden(app->labels[i], false);
+        ffx_sceneNode_setPosition(app->labels[i],
+          ffx_point(LABEL_X, rowYForSlot(slot)));
+    }
+}
+
+static void scrollToCursor(State *app) {
+    if (app->cursor < app->scrollOffset) {
+        app->scrollOffset = app->cursor;
+    } else if (app->cursor >= app->scrollOffset + VISIBLE_ROWS) {
+        app->scrollOffset = app->cursor - (VISIBLE_ROWS - 1);
+    }
+}
+
+static void moveArrow(State *app, bool animated) {
+    int slot = app->cursor - app->scrollOffset;
+    int y = rowYForSlot(slot) + ARROW_OFFSET_Y;
+    ffx_sceneNode_stopAnimations(app->arrow, FfxSceneActionStopCurrent);
+    if (animated) {
+        ffx_sceneNode_animatePosition(app->arrow, ffx_point(ARROW_X, y),
+          0, 150, FfxCurveEaseOutQuad, NULL, NULL);
+    } else {
+        ffx_sceneNode_setPosition(app->arrow, ffx_point(ARROW_X, y));
+    }
+}
 
 static void onKeys(FfxEvent event, FfxEventProps props, void *_app) {
     State *app = _app;
 
-
-    switch(props.keys.down) {
-        case FfxKeyOk: {
-            uint32_t result = 0;
-            switch(app->cursor) {
-                case 0:
-                    result = pushPanelConnect();
-                    break;
-                case 1:
-//                    result = pushPanelGifs(NULL);
-                    break;
-                case 2:
-                    result = pushPanelSpace(NULL);
-                    break;
-            }
-            printf("RESULT-men: %ld\n", result);
+    switch (props.keys.down) {
+        case FfxKeyOk:
+            launchItem(app->cursor);
             return;
-        }
         case FfxKeyNorth:
             if (app->cursor == 0) { return; }
             app->cursor--;
             break;
         case FfxKeySouth:
-            if (app->cursor == 2) { return; }
+            if (app->cursor == ITEM_COUNT - 1) { return; }
             app->cursor++;
             break;
         default:
             return;
     }
 
-
-    ffx_sceneNode_stopAnimations(app->nodeCursor, FfxSceneActionStopCurrent);
-    ffx_sceneNode_animatePosition(app->nodeCursor,
-      ffx_point(25, 58 + (app->cursor * 40)), 0, 150,
-      FfxCurveEaseOutQuad, NULL, NULL);
+    scrollToCursor(app);
+    layoutItems(app);
+    moveArrow(app, true);
 }
 
 static int initFunc(FfxScene scene, FfxNode node, void *_app, void *arg) {
     State *app = _app;
     app->scene = scene;
+    app->cursor = 0;
+    app->scrollOffset = 0;
 
     FfxNode box = ffx_scene_createBox(scene, ffx_size(200, 180));
     ffx_sceneBox_setColor(box, RGBA_DARKER75);
     ffx_sceneGroup_appendChild(node, box);
-    ffx_sceneNode_setPosition(box, (FfxPoint){ .x = 20, .y = 30 });
+    ffx_sceneNode_setPosition(box, ffx_point(20, 30));
 
-    FfxNode text;
+    FfxNode topRule = ffx_scene_createBox(scene, ffx_size(200, 1));
+    ffx_sceneBox_setColor(topRule, ffx_color_rgb(0, 255, 65));
+    ffx_sceneGroup_appendChild(node, topRule);
+    ffx_sceneNode_setPosition(topRule, ffx_point(20, 30));
 
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "Wallet");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 63 });
+    FfxNode bottomRule = ffx_scene_createBox(scene, ffx_size(200, 1));
+    ffx_sceneBox_setColor(bottomRule, ffx_color_rgb(0, 255, 65));
+    ffx_sceneGroup_appendChild(node, bottomRule);
+    ffx_sceneNode_setPosition(bottomRule, ffx_point(20, 209));
 
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "GIFs");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 103 });
-
-    text = ffx_scene_createLabel(scene, FfxFontLarge, "Le Space");
-    ffx_sceneGroup_appendChild(node, text);
-    ffx_sceneNode_setPosition(text, (FfxPoint){ .x = 70, .y = 143 });
+    for (int i = 0; i < ITEM_COUNT; i++) {
+        FfxNode label = ffx_scene_createLabel(scene, FfxFontLarge,
+          menuItems[i]);
+        ffx_sceneGroup_appendChild(node, label);
+        ffx_sceneNode_setHidden(label, true);
+        app->labels[i] = label;
+    }
 
     FfxNode cursor = ffx_scene_createImage(scene, image_arrow,
       sizeof(image_arrow));
     ffx_sceneGroup_appendChild(node, cursor);
-    ffx_sceneNode_setPosition(cursor, (FfxPoint){ .x = 25, .y = 58 });
+    app->arrow = cursor;
 
-    app->nodeCursor = cursor;
+    layoutItems(app);
+    moveArrow(app, false);
 
     ffx_onEvent(FfxEventKeys, onKeys, app);
 
