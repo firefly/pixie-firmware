@@ -1,10 +1,19 @@
 idf_component_register(
   SRCS
     "main.c"
+    "panel-brick.c"
+    "panel-bytes.c"
     "panel-connect.c"
+    "panel-crawl.c"
+    "panel-cyber.c"
     "panel-gifs.c"
+    "panel-leds.c"
+    "panel-life.c"
     "panel-menu.c"
+    "panel-raycast.c"
+    "panel-roids.c"
     "panel-space.c"
+    "panel-stats.c"
     "panel-tx.c"
     "utils.c"
 

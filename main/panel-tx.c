@@ -122,7 +122,7 @@ static int initAddressFunc(void *info, void *_state, void *_arg) {
     }
 
     // Buttons
-    ffx_appendInfoButton(info, "BACK", COLOR_BACK, clickApprove, NULLARG);
+    ffx_appendInfoButton(info, "BACK", COLOR_NAVONLY, clickApprove, NULLARG);
 
     return 0;
 }
@@ -234,7 +234,7 @@ static int initDataFunc(void *info, void *_state, void *arg) {
     }
 
     // Buttons
-    ffx_appendInfoButton(info, "BACK", COLOR_BACK, clickApprove, NULLARG);
+    ffx_appendInfoButton(info, "BACK", COLOR_NAVONLY, clickApprove, NULLARG);
 
     return true;
 }
@@ -335,7 +335,7 @@ static int initNetworkFunc(void *info, void *_state, void *arg) {
     ffx_appendInfoEntry(info, "CHAIN ID", str, NULL, NULLARG);
 
     // Buttons
-    ffx_appendInfoButton(info, "BACK", COLOR_BACK, clickApprove, NULLARG);
+    ffx_appendInfoButton(info, "BACK", COLOR_NAVONLY, clickApprove, NULLARG);
 
     return 0;
 }
