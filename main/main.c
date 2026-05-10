@@ -10,6 +10,7 @@
 
 #include "utils.h"
 
+#include "image-data.h"
 #include "panels.h"
 
 
@@ -23,6 +24,8 @@
 #define GIT_COMMIT ("unknown")
 #endif
 
+#define PIXIE_FW_VERSION    FFX_VERSION(0, 2, 0)
+
 
 static int initPanel(void *arg) {
     return pushPanelMenu();
@@ -33,7 +36,9 @@ void app_main() {
 
     FFX_LOG("GIT Commit: %s", GIT_COMMIT);
 
-    ffx_init(ffx_demo_backgroundPixies, initPanel, NULL);
+    images_initRotated();
+
+    ffx_init(PIXIE_FW_VERSION, ffx_demo_backgroundPixies, initPanel, NULL);
 
     while (1) {
         ffx_dumpStats();

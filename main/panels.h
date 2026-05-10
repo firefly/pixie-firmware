@@ -32,10 +32,6 @@ bool appendNetwork(void *info, FfxDataResult *chainId);
 
 int pushPanelMenu();
 
-//int pushPanelMenu(FfxInfoInitFunc initFunc, size_t stateSize, void *initArg);
-//bool appendMenuItem(void *menu, const char* title,
-//  FfxInfoClickFunc clickFunc, FfxInfoClickArg clickArg);
-
 
 ///////////////////////////////
 // Simple Game and Toy Panels
@@ -47,10 +43,48 @@ typedef enum GameResult {
 } GameResult;
 
 // See: panel-gifs.c
-void pushPanelGifs();
+int pushPanelGifs();
 
 // See: panel-space.c
 GameResult pushPanelSpace();
+
+
+///////////////////////////////
+// Cyberdeck Demo Panels
+
+// See: panel-cyber.c
+int pushPanelCyber();
+
+// See: panel-life.c
+int pushPanelLife();
+
+// See: panel-bytes.c
+int pushPanelBytes();
+
+// See: panel-stats.c
+int pushPanelStats();
+
+// See: panel-leds.c
+int pushPanelLeds();
+
+
+///////////////////////////////
+// Game Panels
+
+// See: panel-raycast.c
+int pushPanelRaycast();
+
+// See: panel-roids.c
+int pushPanelRoids();
+
+// See: panel-brick.c
+int pushPanelBrick();
+
+// See: panel-crawl.c
+int pushPanelCrawl();
+
+// See: panel-snake.c
+int pushPanelSnake();
 
 
 ///////////////////////////////
